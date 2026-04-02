@@ -61,6 +61,7 @@ import { ensureRequiredRuntimes } from './runtimes/index.js';
 import {
   restoreRemoteControl,
 } from './remote-control.js';
+import { shouldQueueFollowUpForNextTurn } from './runtime-policy.js';
 import {
   isSenderAllowed,
   isTriggerAllowed,
@@ -482,8 +483,17 @@ async function startMessageLoop(): Promise<void> {
           const messagesToSend =
             allPending.length > 0 ? allPending : groupMessages;
           const formatted = formatMessages(messagesToSend, TIMEZONE);
+          const shouldQueueFollowUp =
+            queue.isGroupBusy(chatJid) &&
+            shouldQueueFollowUpForNextTurn(group);
 
-          if (queue.sendMessage(chatJid, formatted)) {
+          if (shouldQueueFollowUp) {
+            queue.enqueueMessageCheck(chatJid);
+            logger.debug(
+              { chatJid, count: messagesToSend.length },
+              'Queued follow-up for next turn on active Ollama Claude runtime',
+            );
+          } else if (queue.sendMessage(chatJid, formatted)) {
             logger.debug(
               { chatJid, count: messagesToSend.length },
               'Piped messages to active container',
