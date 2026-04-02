@@ -3,6 +3,7 @@ set -euo pipefail
 
 staged_files="$(git diff --cached --name-only --diff-filter=ACMR)"
 staged_diff="$(git diff --cached --text --unified=0 --no-color)"
+filtered_staged_files="$(printf '%s\n' "$staged_files" | rg -v '(^|/)\.env\.example$' || true)"
 
 forbidden_files_regex='(^|/)\.env($|\.)|(^|/)\.mcp\.local\.json$|(^|/)\.claude/settings\.local\.json$|(^|/)messages\.db$|(^|/).*credentials.*\.json$|(^|/).*(token|secret|oauth).*\.(json|txt|env)$'
 secret_patterns=(
@@ -16,9 +17,9 @@ secret_patterns=(
   'Bearer[[:space:]]+eyJ[A-Za-z0-9._-]{20,}'
 )
 
-if [[ -n "$staged_files" ]] && printf '%s\n' "$staged_files" | rg -n "$forbidden_files_regex" >/dev/null; then
+if [[ -n "$filtered_staged_files" ]] && printf '%s\n' "$filtered_staged_files" | rg -n "$forbidden_files_regex" >/dev/null; then
   echo "Blocked: forbidden local/secret file is staged."
-  printf '%s\n' "$staged_files" | rg -n "$forbidden_files_regex" || true
+  printf '%s\n' "$filtered_staged_files" | rg -n "$forbidden_files_regex" || true
   exit 1
 fi
 
