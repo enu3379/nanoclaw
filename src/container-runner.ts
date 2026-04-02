@@ -16,6 +16,7 @@ import {
   IDLE_TIMEOUT,
   TIMEZONE,
 } from './config.js';
+import { isSyntaxError } from './error-utils.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
 import {
@@ -40,6 +41,7 @@ export interface ContainerInput {
   chatJid: string;
   isMain: boolean;
   isScheduledTask?: boolean;
+  script?: string;
   assistantName?: string;
 }
 
@@ -64,53 +66,41 @@ function buildVolumeMounts(
   const projectRoot = process.cwd();
   const groupDir = resolveGroupFolderPath(group.folder);
 
-  if (isMain) {
-    // Main gets the project root read-only. Writable paths the agent needs
-    // (group folder, IPC, .claude/) are mounted separately below.
-    // Read-only prevents the agent from modifying host application code
-    // (src/, dist/, package.json, etc.) which would bypass the sandbox
-    // entirely on next restart.
+  // Mount the project root. Main group gets write access so the admin agent
+  // can modify config, CLAUDE.md files, and skills directly.
+  // All other groups are read-only. .env is always shadowed below.
+  mounts.push({
+    hostPath: projectRoot,
+    containerPath: '/workspace/project',
+    readonly: !isMain,
+  });
+
+  // Shadow .env if not using Apple Container (which only supports dir mounts)
+  const envFile = path.join(projectRoot, '.env');
+  if (fs.existsSync(envFile) && CONTAINER_RUNTIME_BIN !== 'container') {
     mounts.push({
-      hostPath: projectRoot,
-      containerPath: '/workspace/project',
+      hostPath: '/dev/null',
+      containerPath: '/workspace/project/.env',
       readonly: true,
     });
+  }
 
-    // Shadow .env so the agent cannot read secrets from the mounted project root.
-    // Credentials are injected by the credential proxy, never exposed to containers.
-    const envFile = path.join(projectRoot, '.env');
-    if (fs.existsSync(envFile)) {
-      mounts.push({
-        hostPath: '/dev/null',
-        containerPath: '/workspace/project/.env',
-        readonly: true,
-      });
-    }
+  // ALWAYS mount the group folder as writable.
+  // This is where work logs, temporary files, and group-specific state live.
+  mounts.push({
+    hostPath: groupDir,
+    containerPath: '/workspace/group',
+    readonly: false,
+  });
 
-    // Main also gets its group folder as the working directory
+  // Global memory directory (read-only)
+  const globalDir = path.join(GROUPS_DIR, 'global');
+  if (fs.existsSync(globalDir)) {
     mounts.push({
-      hostPath: groupDir,
-      containerPath: '/workspace/group',
-      readonly: false,
+      hostPath: globalDir,
+      containerPath: '/workspace/global',
+      readonly: true,
     });
-  } else {
-    // Other groups only get their own folder
-    mounts.push({
-      hostPath: groupDir,
-      containerPath: '/workspace/group',
-      readonly: false,
-    });
-
-    // Global memory directory (read-only for non-main)
-    // Only directory mounts are supported, not file mounts
-    const globalDir = path.join(GROUPS_DIR, 'global');
-    if (fs.existsSync(globalDir)) {
-      mounts.push({
-        hostPath: globalDir,
-        containerPath: '/workspace/global',
-        readonly: true,
-      });
-    }
   }
 
   // Per-group Claude sessions directory (isolated from other groups)
@@ -377,6 +367,7 @@ export async function runContainerAgent(
             // so idle timers start even for "silent" query completions.
             outputChain = outputChain.then(() => onOutput(parsed));
           } catch (err) {
+            if (!isSyntaxError(err)) throw err;
             logger.warn(
               { group: group.name, error: err },
               'Failed to parse streamed output chunk',
@@ -617,6 +608,7 @@ export async function runContainerAgent(
 
         resolve(output);
       } catch (err) {
+        if (!isSyntaxError(err) && !(err instanceof Error)) throw err;
         logger.error(
           {
             group: group.name,
@@ -692,7 +684,7 @@ export function writeGroupsSnapshot(
   groupFolder: string,
   isMain: boolean,
   groups: AvailableGroup[],
-  registeredJids: Set<string>,
+  _registeredJids: Set<string>,
 ): void {
   const groupIpcDir = resolveGroupIpcPath(groupFolder);
   fs.mkdirSync(groupIpcDir, { recursive: true });
