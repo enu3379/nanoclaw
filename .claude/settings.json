@@ -9,5 +9,13 @@
         "repo": "qwibitai/nanoclaw-skills"
       }
     }
+  },
+  "sandbox": {
+    "network": {
+      "allowedDomains": [
+        "npm.registry.com",
+        "us.i.posthog.com"
+      ]
+    }
   }
 }
