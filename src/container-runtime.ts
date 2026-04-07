@@ -145,10 +145,9 @@ export function cleanupOrphans(): void {
         execSync(stopContainer(name), { stdio: 'pipe' });
       } catch (err) {
         if (isErrnoException(err, 'ESRCH')) continue;
-        if (!isError(err)) throw err;
         logger.warn(
           { err, name },
-          'Failed to stop orphaned container, continuing cleanup',
+          'Failed to stop orphaned container; continuing',
         );
       }
     }

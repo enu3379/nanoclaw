@@ -248,7 +248,7 @@ export async function runClaudeHostAgent(
       status: 'error',
       result: null,
       error:
-        'Claude host runner is not built. Run `cd runners/agent-runner && npm install && npm run build`.',
+        'Claude host runner is not built. Run `cd container/agent-runner && npm install && npm run build`.',
     };
   }
 
