@@ -14,7 +14,9 @@ if [[ ! "${group_folder}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$ ]]; then
   exit 1
 fi
 
-data_root="${XDG_DATA_HOME:-$HOME/.local/share}/nanoclaw"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+project_root="$(cd "${script_dir}/.." && pwd)"
+data_root="${NANOCLAW_DATA_DIR:-${project_root}/data}"
 task_dir="${data_root}/ipc/${group_folder}/tasks"
 mkdir -p "${task_dir}"
 chmod 700 "${data_root}" "${data_root}/ipc" "${data_root}/ipc/${group_folder}" "${task_dir}" 2>/dev/null || true

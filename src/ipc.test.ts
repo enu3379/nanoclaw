@@ -7,9 +7,7 @@ import { RegisteredGroup } from './types.js';
 describe('processTaskIpc github_pr_event', () => {
   let groups: Record<string, RegisteredGroup>;
   let sendMessageMock: Mock<(jid: string, text: string) => Promise<void>>;
-  let registerGroupMock: Mock<
-    (jid: string, group: RegisteredGroup) => void
-  >;
+  let registerGroupMock: Mock<(jid: string, group: RegisteredGroup) => void>;
   let unregisterGroupMock: Mock<(jid: string, agentType: string) => void>;
   let createThreadMock: Mock<
     (parentJid: string, name: string) => Promise<string>
@@ -64,12 +62,11 @@ describe('processTaskIpc github_pr_event', () => {
     archiveThreadMock = vi
       .fn<(threadJid: string) => Promise<void>>()
       .mockResolvedValue(undefined);
-    enqueueSyntheticMessageMock = vi.fn<
-      (chatJid: string, groupFolder: string, text: string) => void
-    >();
-    syncGroupsMock = vi.fn<(force: boolean) => Promise<void>>().mockResolvedValue(
-      undefined,
-    );
+    enqueueSyntheticMessageMock =
+      vi.fn<(chatJid: string, groupFolder: string, text: string) => void>();
+    syncGroupsMock = vi
+      .fn<(force: boolean) => Promise<void>>()
+      .mockResolvedValue(undefined);
     writeGroupsSnapshotMock = vi.fn();
     onTasksChangedMock = vi.fn();
 
@@ -212,6 +209,48 @@ describe('processTaskIpc github_pr_event', () => {
     expect(sendMessageMock).toHaveBeenCalled();
   });
 
+  it('action=notify updates when workflow run changes with same fingerprint fields', async () => {
+    await processTaskIpc(
+      {
+        type: 'github_pr_event',
+        action: 'notify',
+        groupFolder: 'pr-reviews',
+        repoFullName: 'enu3379/nanoclaw',
+        prNumber: 5,
+        headSha: 'abc123',
+        workflowRunId: 100,
+        ciStatus: 'success',
+        mergeability: 'mergeable',
+        failedChecks: [],
+      },
+      'main',
+      true,
+      baseDeps,
+    );
+
+    sendMessageMock.mockClear();
+
+    await processTaskIpc(
+      {
+        type: 'github_pr_event',
+        action: 'notify',
+        groupFolder: 'pr-reviews',
+        repoFullName: 'enu3379/nanoclaw',
+        prNumber: 5,
+        headSha: 'abc123',
+        workflowRunId: 101,
+        ciStatus: 'success',
+        mergeability: 'mergeable',
+        failedChecks: [],
+      },
+      'main',
+      true,
+      baseDeps,
+    );
+
+    expect(sendMessageMock).toHaveBeenCalled();
+  });
+
   it('action=closed archives thread and unregisters group idempotently', async () => {
     await processTaskIpc(
       {
@@ -246,6 +285,68 @@ describe('processTaskIpc github_pr_event', () => {
 
     expect(unregisterGroupMock).toHaveBeenCalled();
     expect(archiveThreadMock).toHaveBeenCalledWith('dc:new-thread-id');
+  });
+
+  it('action=notify creates a new thread when previous one was archived', async () => {
+    await processTaskIpc(
+      {
+        type: 'github_pr_event',
+        action: 'notify',
+        groupFolder: 'pr-reviews',
+        repoFullName: 'enu3379/nanoclaw',
+        prNumber: 5,
+        headSha: 'abc',
+        ciStatus: 'success',
+        mergeability: 'mergeable',
+        failedChecks: [],
+      },
+      'main',
+      true,
+      baseDeps,
+    );
+
+    await processTaskIpc(
+      {
+        type: 'github_pr_event',
+        action: 'closed',
+        groupFolder: 'pr-reviews',
+        repoFullName: 'enu3379/nanoclaw',
+        prNumber: 5,
+        merged: false,
+      },
+      'main',
+      true,
+      baseDeps,
+    );
+
+    createThreadMock.mockResolvedValueOnce('dc:replacement-thread');
+
+    await processTaskIpc(
+      {
+        type: 'github_pr_event',
+        action: 'notify',
+        groupFolder: 'pr-reviews',
+        repoFullName: 'enu3379/nanoclaw',
+        prNumber: 5,
+        headSha: 'def',
+        workflowRunId: 102,
+        ciStatus: 'success',
+        mergeability: 'mergeable',
+        failedChecks: [],
+      },
+      'main',
+      true,
+      baseDeps,
+    );
+
+    expect(registerGroupMock).toHaveBeenCalledWith(
+      'dc:replacement-thread',
+      expect.objectContaining({ folder: 'pr-enu3379-nanoclaw-5' }),
+    );
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      'dc:replacement-thread',
+      expect.stringContaining('PR #5'),
+    );
   });
 
   it('action=closed is idempotent when thread is not found', async () => {

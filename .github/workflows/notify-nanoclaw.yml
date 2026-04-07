@@ -90,6 +90,7 @@ jobs:
               const { pr, mergeability } = await getMergeability(prNumber);
               if (pr.draft) return;
               if (isBotLogin(pr.user?.login)) return;
+              if (pr.state !== 'open' || pr.merged || pr.closed_at) return;
 
               const failedChecks = await getFailedChecks(pr.head.sha);
               const ciStatus =
@@ -174,5 +175,9 @@ jobs:
               -p "${port}" \
               -o StrictHostKeyChecking=accept-new \
               "${NANOCLAW_SSH_USER}@${NANOCLAW_SSH_HOST}" \
-              "${remote_script}"
+              "${remote_script}" || {
+                status=$?
+                echo "::warning::Failed to send payload (exit=${status})"
+                continue
+              }
           done

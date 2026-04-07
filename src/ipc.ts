@@ -114,6 +114,55 @@ function buildPrAgentPrompt(task: {
     .join('\n');
 }
 
+const PR_AGENT_FILE_TEXT = {
+  en: {
+    title: '# PR Review Agent',
+    intro: 'This session is a dedicated agent for GitHub PR management.',
+    info: '## PR Info',
+    repo: 'Repository',
+    branch: 'Branch',
+    author: 'Author',
+    commands: '## Available Commands',
+    commandsBody: [
+      'Execute natural-language user commands via the GitHub plugin:',
+      '- "merge this" -> PR merge',
+      '- "leave a comment: [text]" -> PR comment',
+      '- "request changes: [reason]" -> request changes review',
+      '- "close this" -> PR close',
+      '- "check status" -> refresh CI/merge status',
+    ],
+    rules: '## Rules',
+    rulesBody: [
+      '- Before commands, only summarize PR status briefly and wait',
+      '- Use the GitHub plugin for real actions',
+      '- If an error occurs, report it clearly',
+    ],
+  },
+  ko: {
+    title: '# PR Review Agent',
+    intro: '이 세션은 GitHub PR 관리를 위한 전용 에이전트입니다.',
+    info: '## PR 정보',
+    repo: '저장소',
+    branch: '브랜치',
+    author: '작성자',
+    commands: '## 사용 가능한 명령',
+    commandsBody: [
+      '사용자의 자연어 명령을 GitHub plugin으로 실행합니다:',
+      '- "머지해줘" -> PR merge',
+      '- "댓글 달아줘 [내용]" -> PR comment',
+      '- "수정 요청해줘 [이유]" -> request changes review',
+      '- "닫아줘" -> PR close',
+      '- "상태 확인해줘" -> CI/merge 상태 재조회',
+    ],
+    rules: '## 규칙',
+    rulesBody: [
+      '- 명령 전에는 PR 상태 요약만 간단히 답하고 대기',
+      '- GitHub plugin을 사용해서 실제 액션 수행',
+      '- 에러 발생 시 명확하게 알림',
+    ],
+  },
+} as const;
+
 function writePrAgentFile(
   groupFolder: string,
   task: {
@@ -123,34 +172,31 @@ function writePrAgentFile(
     branch?: string;
     author?: string;
   },
+  locale: keyof typeof PR_AGENT_FILE_TEXT = 'ko',
 ): void {
+  const copy = PR_AGENT_FILE_TEXT[locale] ?? PR_AGENT_FILE_TEXT.ko;
   const groupDir = resolveGroupFolderPath(groupFolder);
   fs.mkdirSync(groupDir, { recursive: true });
   fs.writeFileSync(
     path.join(groupDir, 'agent.md'),
-    `# PR Review Agent
-
-이 세션은 GitHub PR 관리를 위한 전용 에이전트입니다.
-
-## PR 정보
-- PR #${task.prNumber}: ${task.prTitle || ''}
-- 저장소: ${task.repoFullName}
-- 브랜치: ${task.branch || 'unknown'}
-- 작성자: ${task.author || 'unknown'}
-
-## 사용 가능한 명령
-사용자의 자연어 명령을 GitHub plugin으로 실행합니다:
-- "머지해줘" -> PR merge
-- "댓글 달아줘 [내용]" -> PR comment
-- "수정 요청해줘 [이유]" -> request changes review
-- "닫아줘" -> PR close
-- "상태 확인해줘" -> CI/merge 상태 재조회
-
-## 규칙
-- 명령 전에는 PR 상태 요약만 간단히 답하고 대기
-- GitHub plugin을 사용해서 실제 액션 수행
-- 에러 발생 시 명확하게 알림
-`,
+    [
+      copy.title,
+      '',
+      copy.intro,
+      '',
+      copy.info,
+      `- PR #${task.prNumber}: ${task.prTitle || ''}`,
+      `- ${copy.repo}: ${task.repoFullName}`,
+      `- ${copy.branch}: ${task.branch || 'unknown'}`,
+      `- ${copy.author}: ${task.author || 'unknown'}`,
+      '',
+      copy.commands,
+      ...copy.commandsBody,
+      '',
+      copy.rules,
+      ...copy.rulesBody,
+      '',
+    ].join('\n'),
   );
 }
 
@@ -158,7 +204,10 @@ function buildPrGroupFolder(repoFullName: string, prNumber: number): string {
   const repoSlug = repoFullName.replace(/[^A-Za-z0-9_-]+/g, '-');
   const folder = `pr-${repoSlug}-${prNumber}`.replace(/-+/g, '-');
   if (folder.length <= 64 && isValidGroupFolder(folder)) return folder;
-  const hash = createHash('sha1').update(`${repoFullName}#${prNumber}`).digest('hex').slice(0, 12);
+  const hash = createHash('sha1')
+    .update(`${repoFullName}#${prNumber}`)
+    .digest('hex')
+    .slice(0, 12);
   return `pr-${hash}-${prNumber}`;
 }
 
@@ -645,7 +694,12 @@ export async function processTaskIpc(
 
         const fingerprint = computePrFingerprint(data);
         const existing = getPrThread(data.repoFullName, data.prNumber);
-        if (existing?.last_fingerprint === fingerprint) {
+        if (
+          existing?.status === 'active' &&
+          existing.last_fingerprint === fingerprint &&
+          existing.head_sha === (data.headSha ?? null) &&
+          existing.workflow_run_id === (data.workflowRunId ?? null)
+        ) {
           logger.info(
             { repo: data.repoFullName, prNumber: data.prNumber },
             'Skipping duplicate PR notification',
@@ -654,18 +708,36 @@ export async function processTaskIpc(
         }
 
         const parentJid = parentGroup[0];
-        const threadJid =
-          existing?.thread_jid ??
-          (await deps.createThread(
-            parentJid,
-            `PR #${data.prNumber}${data.prTitle ? ` ${data.prTitle}` : ''}`,
-          ));
+        const shouldCreateNewThread =
+          !existing ||
+          existing.status === 'archived' ||
+          existing.status === 'archive_pending';
+        let threadJid = existing?.thread_jid;
+        if (!threadJid || shouldCreateNewThread) {
+          try {
+            threadJid = await deps.createThread(
+              parentJid,
+              `PR #${data.prNumber}${data.prTitle ? ` ${data.prTitle}` : ''}`,
+            );
+          } catch (err) {
+            logger.error(
+              {
+                repo: data.repoFullName,
+                prNumber: data.prNumber,
+                prTitle: data.prTitle,
+                err,
+              },
+              'Failed to create PR thread',
+            );
+            throw err;
+          }
+        }
         const prGroupFolder = existing?.group_folder
           ? existing.group_folder
           : buildPrGroupFolder(data.repoFullName, data.prNumber);
         const statusMessage = buildPrStatusMessage(data);
 
-        if (!existing) {
+        if (shouldCreateNewThread) {
           deps.registerGroup(threadJid, {
             name: `PR #${data.prNumber}`,
             folder: prGroupFolder,
@@ -694,10 +766,11 @@ export async function processTaskIpc(
           data.headSha,
           data.workflowRunId,
           fingerprint,
+          'active',
         );
         await deps.sendMessage(threadJid, statusMessage);
 
-        if (!existing && deps.enqueueSyntheticMessage) {
+        if (shouldCreateNewThread && deps.enqueueSyntheticMessage) {
           deps.enqueueSyntheticMessage(
             threadJid,
             prGroupFolder,
@@ -732,7 +805,7 @@ export async function processTaskIpc(
         );
         deps.unregisterGroup?.(existing.thread_jid, 'codex');
 
-        const closedAt = new Date().toISOString();
+        const closedAt = existing.closed_at ?? new Date().toISOString();
         if (!deps.archiveThread) {
           updatePrThreadStatus(
             data.repoFullName,

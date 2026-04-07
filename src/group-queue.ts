@@ -107,14 +107,15 @@ export class GroupQueue {
     }));
   }
 
-  removeGroup(groupJid: string): void {
+  removeGroup(groupJid: string): boolean {
     const state = this.groups.get(groupJid);
-    if (!state) return;
-    if (state.active) return;
-    if (state.pendingMessages) return;
-    if (state.pendingTasks.length > 0) return;
+    if (!state) return true;
+    if (state.active) return false;
+    if (state.pendingMessages) return false;
+    if (state.pendingTasks.length > 0) return false;
     this.groups.delete(groupJid);
     this.waitingGroups = this.waitingGroups.filter((jid) => jid !== groupJid);
+    return true;
   }
 
   enqueueMessageCheck(groupJid: string): void {

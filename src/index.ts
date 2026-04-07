@@ -99,6 +99,13 @@ let pairedRoomService: PairedRoomService;
 
 const onecli = new OneCLI({ url: ONECLI_URL });
 
+function inferChannelType(chatJid: string): string {
+  if (chatJid.startsWith('dc:')) return 'discord';
+  if (chatJid.startsWith('tg:')) return 'telegram';
+  if (chatJid.startsWith('wa:')) return 'whatsapp';
+  return 'unknown';
+}
+
 function ensureOneCLIAgent(jid: string, group: RegisteredGroup): void {
   if (group.isMain) return;
   const identifier = group.folder.toLowerCase().replace(/_/g, '-');
@@ -688,6 +695,23 @@ async function main(): Promise<void> {
       if (text) await channel.sendMessage(jid, text);
     },
   });
+
+  const retryUnregisterGroup = (jid: string, agentType: string): void => {
+    const removed = queue.removeGroup(jid);
+    if (!removed) {
+      logger.info({ jid }, 'Deferring group unregister until queue is idle');
+      setTimeout(() => retryUnregisterGroup(jid, agentType), 1000);
+      return;
+    }
+
+    const group = registeredGroups[jid];
+    if (group) {
+      sessionService.clearLiveSession(group.folder, agentType);
+    }
+    deleteRegisteredGroup(jid, agentType);
+    delete registeredGroups[jid];
+  };
+
   startIpcWatcher({
     sendMessage: (jid, text) => {
       const channel = findChannel(channels, jid);
@@ -696,15 +720,7 @@ async function main(): Promise<void> {
     },
     registeredGroups: () => registeredGroups,
     registerGroup,
-    unregisterGroup: (jid, agentType) => {
-      const group = registeredGroups[jid];
-      if (group) {
-        sessionService.clearLiveSession(group.folder, agentType);
-      }
-      deleteRegisteredGroup(jid, agentType);
-      delete registeredGroups[jid];
-      queue.removeGroup(jid);
-    },
+    unregisterGroup: retryUnregisterGroup,
     syncGroups: async (force: boolean) => {
       await Promise.all(
         channels
@@ -744,7 +760,13 @@ async function main(): Promise<void> {
         is_bot_message: false,
       };
       storeMessage(msg);
-      storeChatMetadata(chatJid, timestamp, 'PR Thread', 'discord', true);
+      storeChatMetadata(
+        chatJid,
+        timestamp,
+        'PR Thread',
+        inferChannelType(chatJid),
+        true,
+      );
       queue.enqueueMessageCheck(chatJid);
     },
     onTasksChanged: () => {
@@ -771,25 +793,24 @@ async function main(): Promise<void> {
       if (!thread.thread_jid.startsWith('dc:') || !channel.archiveThread) {
         continue;
       }
-      channel.archiveThread(thread.thread_jid).then(
-        () => {
-          updatePrThreadStatus(
-            thread.repo_full_name,
-            thread.pr_number,
-            'archived',
-            new Date().toISOString(),
-          );
-          logger.info(
-            { threadJid: thread.thread_jid },
-            'Retried pending PR thread archive successfully',
-          );
-        },
-        (err) =>
-          logger.warn(
-            { threadJid: thread.thread_jid, err },
-            'Failed to retry pending PR thread archive',
-          ),
-      );
+      try {
+        await channel.archiveThread(thread.thread_jid);
+        updatePrThreadStatus(
+          thread.repo_full_name,
+          thread.pr_number,
+          'archived',
+          thread.closed_at,
+        );
+        logger.info(
+          { threadJid: thread.thread_jid },
+          'Retried pending PR thread archive successfully',
+        );
+      } catch (err) {
+        logger.warn(
+          { threadJid: thread.thread_jid, err },
+          'Failed to retry pending PR thread archive',
+        );
+      }
       break;
     }
   }

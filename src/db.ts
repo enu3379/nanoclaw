@@ -116,11 +116,12 @@ function createSchema(database: Database.Database): void {
       head_sha TEXT,
       workflow_run_id INTEGER,
       last_fingerprint TEXT,
-      status TEXT DEFAULT 'active',
+      status TEXT DEFAULT 'active' CHECK (status IN ('active', 'archive_pending', 'archived')),
       created_at TEXT NOT NULL,
       closed_at TEXT,
       PRIMARY KEY (repo_full_name, pr_number)
     );
+    CREATE INDEX IF NOT EXISTS idx_pr_threads_status ON pr_threads(status);
   `);
 
   // Add context_mode column if it doesn't exist (migration for existing DBs)
@@ -949,7 +950,11 @@ export function upsertPrThread(
       head_sha = excluded.head_sha,
       workflow_run_id = excluded.workflow_run_id,
       last_fingerprint = excluded.last_fingerprint,
-      status = excluded.status
+      status = excluded.status,
+      closed_at = CASE
+        WHEN excluded.status = 'active' THEN NULL
+        ELSE pr_threads.closed_at
+      END
   `,
   ).run(
     repoFullName,
@@ -1024,6 +1029,17 @@ export function updatePrThreadStatus(
   status: PrThreadRecord['status'],
   closedAt?: string | null,
 ): void {
+  if (closedAt === undefined) {
+    db.prepare(
+      `
+      UPDATE pr_threads
+      SET status = ?
+      WHERE repo_full_name = ? AND pr_number = ?
+    `,
+    ).run(status, repoFullName, prNumber);
+    return;
+  }
+
   db.prepare(
     `
     UPDATE pr_threads
