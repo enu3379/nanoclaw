@@ -22,10 +22,21 @@ jobs:
 
       - name: Verify running
         run: |
-          sleep 2
-          if launchctl print gui/$(id -u)/com.nanoclaw | grep -q 'state = running'; then
-            echo "NanoClaw restarted successfully"
-          else
-            echo "::error::NanoClaw failed to start"
-            exit 1
-          fi
+          set -euo pipefail
+          attempts=15
+          delay=2
+
+          for attempt in $(seq 1 "$attempts"); do
+            if launchctl print gui/$(id -u)/com.nanoclaw | grep -q 'state = running'; then
+              echo "NanoClaw restarted successfully"
+              exit 0
+            fi
+
+            if [ "$attempt" -lt "$attempts" ]; then
+              echo "Waiting for NanoClaw to reach running state ($attempt/$attempts)..."
+              sleep "$delay"
+            fi
+          done
+
+          echo "::error::NanoClaw failed to start after $((attempts * delay)) seconds"
+          exit 1
