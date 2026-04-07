@@ -1,5 +1,9 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+import { DATA_DIR } from './config.js';
 import {
   _initTestDatabase,
   createTask,
@@ -8,7 +12,12 @@ import {
   getTaskById,
   setRegisteredGroup,
 } from './db.js';
-import { processTaskIpc, IpcDeps } from './ipc.js';
+import {
+  _resetIpcWatcherForTests,
+  processTaskIpc,
+  startIpcWatcher,
+  IpcDeps,
+} from './ipc.js';
 import { RegisteredGroup } from './types.js';
 
 // Set up registered groups used across tests
@@ -36,6 +45,7 @@ const THIRD_GROUP: RegisteredGroup = {
 
 let groups: Record<string, RegisteredGroup>;
 let deps: IpcDeps;
+const ipcBaseDir = path.join(DATA_DIR, 'ipc');
 
 beforeEach(() => {
   _initTestDatabase();
@@ -64,6 +74,11 @@ beforeEach(() => {
     writeGroupsSnapshot: () => {},
     onTasksChanged: () => {},
   };
+});
+
+afterEach(() => {
+  _resetIpcWatcherForTests();
+  fs.rmSync(ipcBaseDir, { recursive: true, force: true });
 });
 
 // --- schedule_task authorization ---
@@ -433,6 +448,72 @@ describe('IPC message authorization', () => {
     expect(
       isMessageAuthorized('whatsapp_main', true, 'unknown@g.us', groups),
     ).toBe(true);
+  });
+});
+
+describe('IPC watcher per-group fs.watch integration', () => {
+  it('processes messages from an existing per-group IPC directory', async () => {
+    const sendMessage = vi.fn(async () => {});
+    deps.sendMessage = sendMessage;
+
+    fs.mkdirSync(path.join(ipcBaseDir, 'other-group', 'messages'), {
+      recursive: true,
+    });
+    fs.mkdirSync(path.join(ipcBaseDir, 'other-group', 'tasks'), {
+      recursive: true,
+    });
+
+    startIpcWatcher(deps);
+
+    fs.writeFileSync(
+      path.join(ipcBaseDir, 'other-group', 'messages', 'msg.json'),
+      JSON.stringify({
+        type: 'message',
+        chatJid: 'other@g.us',
+        text: 'hello from watcher',
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith(
+        'other@g.us',
+        'hello from watcher',
+      );
+    });
+  });
+
+  it('starts watching newly created group IPC directories after startup', async () => {
+    const sendMessage = vi.fn(async () => {});
+    deps.sendMessage = sendMessage;
+
+    fs.mkdirSync(ipcBaseDir, { recursive: true });
+    startIpcWatcher(deps);
+
+    fs.mkdirSync(path.join(ipcBaseDir, 'third-group', 'messages'), {
+      recursive: true,
+    });
+    fs.mkdirSync(path.join(ipcBaseDir, 'third-group', 'tasks'), {
+      recursive: true,
+    });
+
+    await vi.waitFor(() => {
+      expect(fs.existsSync(path.join(ipcBaseDir, 'third-group', 'tasks'))).toBe(
+        true,
+      );
+    });
+
+    fs.writeFileSync(
+      path.join(ipcBaseDir, 'third-group', 'messages', 'msg.json'),
+      JSON.stringify({
+        type: 'message',
+        chatJid: 'third@g.us',
+        text: 'hello new group',
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith('third@g.us', 'hello new group');
+    });
   });
 });
 
