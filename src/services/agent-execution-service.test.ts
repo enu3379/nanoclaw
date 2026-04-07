@@ -31,6 +31,7 @@ vi.mock('../session-recovery.js', () => ({
 vi.mock('../logger.js', () => ({
   logger: {
     error: vi.fn(),
+    debug: vi.fn(),
   },
 }));
 

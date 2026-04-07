@@ -3,6 +3,10 @@ import {
   writeGroupsSnapshot,
   writeTasksSnapshot,
 } from '../container-runner.js';
+import {
+  ClaudeAuthRecoveryService,
+  isClaudeAuthFailure,
+} from '../claude-auth-recovery.js';
 import { getAllTasks } from '../db.js';
 import { isError } from '../error-utils.js';
 import { GroupQueue } from '../group-queue.js';
@@ -23,6 +27,7 @@ export interface AgentExecutionServiceDeps {
   sessionService: AgentSessionService;
   getAvailableGroups: () => import('../container-runner.js').AvailableGroup[];
   getRegisteredJids: () => Set<string>;
+  claudeAuthRecovery?: ClaudeAuthRecoveryService;
 }
 
 export class AgentExecutionService {
@@ -117,8 +122,19 @@ export class AgentExecutionService {
         ) {
           this.deps.sessionService.clearLiveSession(group.folder, agentType);
         }
+        if (agentType === 'claude-code' && isClaudeAuthFailure(output.error)) {
+          await this.deps.claudeAuthRecovery?.handleAuthFailure(
+            group,
+            chatJid,
+            output.error || 'Claude authentication failed',
+          );
+        }
         logger.error({ group: group.name, error: output.error }, 'Agent error');
         return 'error';
+      }
+
+      if (agentType === 'claude-code') {
+        await this.deps.claudeAuthRecovery?.noteSuccessfulClaudeRun(group);
       }
 
       return 'success';

@@ -123,6 +123,40 @@ ls -la store/auth/
 npm run auth
 ```
 
+## Claude Login Recovery Notes
+
+Observed behavior from a real Claude CLI login test on `2026-04-07`:
+
+- Claude CLI prints a browser login URL directly to the terminal.
+- Browser approval may not complete the login by itself.
+- After approval, Claude can still wait at `Paste code here if prompted >`.
+- The browser can return a one-time code or a `code#state` value such as:
+  `ilX23npDQBMz1GR9uVrDvjv92004rATM1QCgVcKtPCDyaMT1#FYNJ7ne9oiL5NvtVhMv1ffXp3EhNLFKyIGczLFrQEbI`
+- That returned value may need to be pasted back into the waiting Claude CLI session to finish authentication.
+
+Debug flow:
+
+```bash
+# 1. Capture the current Claude login screen
+tmux -S "${TMPDIR:-/tmp}/nanoclaw-claude-test.sock" capture-pane -p -J -t claude-login-link-retry:0.0 -S -220
+
+# 2. Confirm whether Claude is still waiting for the callback code
+# Look for:
+#   Paste code here if prompted >
+
+# 3. Check whether credentials were written
+find /tmp/nanoclaw-claude-login-link-retry/.claude -maxdepth 2 -type f | sort
+
+# 4. If browser approval returned a code, paste it into the waiting CLI
+tmux -S "${TMPDIR:-/tmp}/nanoclaw-claude-test.sock" send-keys -t claude-login-link-retry:0.0 -- '<PASTE_CODE_HERE>' Enter
+```
+
+Implementation implication:
+
+- NanoClaw recovery must treat Claude login as a two-step flow:
+  1. send the browser link
+  2. if Claude still waits for input, collect and paste the returned code
+
 ## Service Management
 
 ```bash
