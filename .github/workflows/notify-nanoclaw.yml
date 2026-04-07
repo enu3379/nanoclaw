@@ -172,6 +172,26 @@ jobs:
           payload_file="${{ steps.build-payloads.outputs.path }}"
           script="$HOME/nanoclaw/scripts/nanoclaw-notify-pr.sh"
 
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "::error::Required tool 'jq' is not installed or not on PATH."
+            exit 1
+          fi
+
+          if [ ! -f "${payload_file}" ]; then
+            echo "::error::Payload file not found: ${payload_file}"
+            exit 1
+          fi
+
+          if [ ! -f "${script}" ]; then
+            echo "::error::NanoClaw notify script not found: ${script}"
+            exit 1
+          fi
+
+          if [ ! -x "${script}" ]; then
+            echo "::error::NanoClaw notify script is not executable: ${script}"
+            exit 1
+          fi
+
           fail_count=0
           while IFS= read -r payload; do
             printf '%s\n' "${payload}" | bash "${script}" || {
