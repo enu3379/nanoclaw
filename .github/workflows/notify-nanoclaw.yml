@@ -67,7 +67,15 @@ jobs:
                 repo,
                 pull_number: prNumber,
               });
-              return { pr: pr.data, mergeability: 'unknown' };
+              return {
+                pr: pr.data,
+                mergeability:
+                  pr.data.mergeable === null
+                    ? 'unknown'
+                    : pr.data.mergeable
+                      ? 'mergeable'
+                      : 'conflicting',
+              };
             }
 
             async function getFailedChecks(headSha) {
@@ -164,8 +172,13 @@ jobs:
         env:
           NANOCLAW_SSH_HOST: ${{ secrets.NANOCLAW_SSH_HOST }}
           NANOCLAW_SSH_USER: ${{ secrets.NANOCLAW_SSH_USER }}
+          NANOCLAW_SSH_KEY: ${{ secrets.NANOCLAW_SSH_KEY }}
         run: |
           set -euo pipefail
+          mkdir -p ~/.ssh
+          key_file=~/.ssh/nanoclaw_key
+          printf '%s\n' "${NANOCLAW_SSH_KEY}" > "${key_file}"
+          chmod 600 "${key_file}"
           payload_file="${{ steps.build-payloads.outputs.path }}"
           port="${NANOCLAW_SSH_PORT:-22}"
           remote_script="${NANOCLAW_REMOTE_SCRIPT:-~/nanoclaw/scripts/nanoclaw-notify-pr.sh}"
@@ -173,6 +186,7 @@ jobs:
           jq -c '.[]' "${payload_file}" | while IFS= read -r payload; do
             printf '%s\n' "${payload}" | ssh \
               -p "${port}" \
+              -i "${key_file}" \
               -o StrictHostKeyChecking=accept-new \
               "${NANOCLAW_SSH_USER}@${NANOCLAW_SSH_HOST}" \
               "${remote_script}" || {
