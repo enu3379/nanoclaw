@@ -188,6 +188,9 @@ jobs:
                 state: 'open',
                 per_page: 100,
               });
+              if (prs.length === 0) {
+                core.info('No open PRs, nothing to do');
+              }
               for (const pr of prs) {
                 await addNotifyPayload(pr.number, null);
               }
