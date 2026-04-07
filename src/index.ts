@@ -53,17 +53,15 @@ import {
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
-import {
-  restoreRemoteControl,
-} from './remote-control.js';
+import { restoreRemoteControl } from './remote-control.js';
 import { shouldQueueFollowUpForNextTurn } from './runtime-policy.js';
+import {
   findChannel,
   findChannelForAgent,
   formatMessages,
   formatOutbound,
 } from './router.js';
 import { ensureRequiredRuntimes } from './runtimes/index.js';
-import { restoreRemoteControl } from './remote-control.js';
 import {
   isSenderAllowed,
   isTriggerAllowed,
