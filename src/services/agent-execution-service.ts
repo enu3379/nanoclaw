@@ -134,7 +134,10 @@ export class AgentExecutionService {
       }
 
       if (agentType === 'claude-code') {
-        await this.deps.claudeAuthRecovery?.noteSuccessfulClaudeRun(group);
+        await this.deps.claudeAuthRecovery?.noteSuccessfulClaudeRun(
+          group,
+          chatJid,
+        );
       }
 
       return 'success';

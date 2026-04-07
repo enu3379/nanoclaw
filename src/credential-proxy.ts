@@ -19,7 +19,11 @@ import { request as httpsRequest } from 'https';
 import { request as httpRequest, RequestOptions } from 'http';
 import fs from 'fs';
 
-import { getClaudeAuthStatus, getClaudeCredentialsPath } from './claude-auth.js';
+import {
+  getClaudeAuthStatus,
+  getClaudeCredentialsPath,
+  readClaudeAccessToken,
+} from './claude-auth.js';
 import { isError, isSyntaxError } from './error-utils.js';
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
@@ -30,14 +34,7 @@ const CRED_PATH = getClaudeCredentialsPath();
 function readClaudeCredentials(): string | undefined {
   const auth = getClaudeAuthStatus();
   if (auth.mode !== 'oauth' || auth.tokenStatus !== 'valid') return undefined;
-  try {
-    const raw = fs.readFileSync(auth.credentialsPath, 'utf-8');
-    const creds = JSON.parse(raw);
-    return creds?.claudeAiOauth?.accessToken as string | undefined;
-  } catch (err) {
-    if (!isError(err) && !isSyntaxError(err)) throw err;
-    return undefined;
-  }
+  return readClaudeAccessToken();
 }
 
 /** In-flight refresh promise — prevents concurrent refresh races */

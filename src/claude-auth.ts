@@ -88,10 +88,19 @@ function getOauthTokenStatus(
   oauth: ClaudeOauthCredentials | undefined,
 ): ClaudeTokenStatus {
   if (!oauth?.accessToken) return 'missing';
-  if (typeof oauth.expiresAt === 'number' && oauth.expiresAt <= Date.now()) {
+  const expiresAtMs = normalizeExpiresAt(oauth.expiresAt);
+  if (typeof expiresAtMs === 'number' && expiresAtMs <= Date.now()) {
     return 'expired';
   }
   return 'valid';
+}
+
+function normalizeExpiresAt(expiresAt?: number): number | undefined {
+  if (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) {
+    return undefined;
+  }
+  // Some OAuth stores use epoch seconds while others use epoch milliseconds.
+  return expiresAt < 1_000_000_000_000 ? expiresAt * 1000 : expiresAt;
 }
 
 function buildOauthStatus(
@@ -120,8 +129,8 @@ function buildOauthStatus(
     tokenStatus,
     credentialsPath,
     expiresAt:
-      typeof oauth?.expiresAt === 'number'
-        ? new Date(oauth.expiresAt).toISOString()
+      typeof normalizeExpiresAt(oauth?.expiresAt) === 'number'
+        ? new Date(normalizeExpiresAt(oauth?.expiresAt)!).toISOString()
         : null,
     canRefresh: Boolean(oauth?.refreshToken),
     usingEnvOverride,

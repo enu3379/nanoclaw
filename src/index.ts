@@ -607,8 +607,6 @@ async function main(): Promise<void> {
     activateLocalFallback: async (chatJid) => {
       const group = registeredGroups[chatJid];
       if (!group || getAgentType(group) !== 'claude-code') return false;
-      const ollama = await ensureOllamaServerRunning();
-      if (!ollama.ok) return false;
 
       const updatedGroup: RegisteredGroup = {
         ...group,

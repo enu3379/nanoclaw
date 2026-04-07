@@ -32,7 +32,7 @@ interface ClaudeAuthRecoveryDeps {
 export function isClaudeAuthFailure(error?: string | null): boolean {
   return Boolean(
     error &&
-      /(not logged in|please run \/login|authentication_failed|oauth|expired.*token)/i.test(
+      /(not logged in|please run \/login|authentication_failed|oauth token.*expired|expired oauth token)/i.test(
         error,
       ),
   );
@@ -52,6 +52,7 @@ export class ClaudeAuthRecoveryService {
   private recoveryTimer: ReturnType<typeof setTimeout> | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private recoveringForChat: string | null = null;
+  private recoverySequence = 0;
 
   constructor(private readonly deps: ClaudeAuthRecoveryDeps) {}
 
@@ -76,7 +77,10 @@ export class ClaudeAuthRecoveryService {
     }
   }
 
-  private setHealthy(): void {
+  private setHealthy(chatJid?: string): boolean {
+    if (chatJid && this.recoveringForChat && this.recoveringForChat !== chatJid) {
+      return false;
+    }
     this.clearTimers();
     this.recoveringForChat = null;
     this.snapshot = {
@@ -86,15 +90,28 @@ export class ClaudeAuthRecoveryService {
       targetChatJid: null,
       lastRecoveredAt: new Date().toISOString(),
     };
+    return true;
   }
 
-  async noteSuccessfulClaudeRun(group: RegisteredGroup): Promise<void> {
+  private isActiveRecovery(chatJid: string, sequence: number): boolean {
+    return (
+      this.snapshot.state === 'recovering' &&
+      this.recoveringForChat === chatJid &&
+      this.recoverySequence === sequence
+    );
+  }
+
+  async noteSuccessfulClaudeRun(
+    group: RegisteredGroup,
+    chatJid: string,
+  ): Promise<void> {
     if (group.containerConfig?.providerPreset === 'ollama') return;
+    if (this.recoveringForChat && this.recoveringForChat !== chatJid) return;
     const auth = getClaudeAuthStatus({
       providerPreset: group.containerConfig?.providerPreset,
     });
     if (auth.mode === 'oauth' && auth.tokenStatus === 'valid') {
-      this.setHealthy();
+      this.setHealthy(chatJid);
     }
   }
 
@@ -123,6 +140,8 @@ export class ClaudeAuthRecoveryService {
     }
 
     this.recoveringForChat = chatJid;
+    this.recoverySequence += 1;
+    const sequence = this.recoverySequence;
     this.snapshot = {
       ...this.snapshot,
       state: 'recovering',
@@ -166,11 +185,12 @@ export class ClaudeAuthRecoveryService {
     }
 
     this.pollTimer = setInterval(async () => {
+      if (!this.isActiveRecovery(chatJid, sequence)) return;
       const auth = getClaudeAuthStatus({
         providerPreset: group.containerConfig?.providerPreset,
       });
       if (auth.mode === 'oauth' && auth.tokenStatus === 'valid') {
-        this.setHealthy();
+        if (!this.setHealthy(chatJid)) return;
         await this.deps.notifyChat(
           notifyChatJid,
           [
@@ -183,26 +203,10 @@ export class ClaudeAuthRecoveryService {
     }, RECOVERY_POLL_MS);
 
     this.recoveryTimer = setTimeout(async () => {
+      if (!this.isActiveRecovery(chatJid, sequence)) return;
       this.clearTimers();
-      const ollama = await ensureOllamaServerRunning();
-      if (!ollama.ok) {
-        this.snapshot = {
-          ...this.snapshot,
-          state: 'degraded',
-        };
-        this.recoveringForChat = null;
-        await this.deps.notifyChat(
-          notifyChatJid,
-          [
-            '**Claude Authentication Recovery**',
-            'State: `degraded`',
-            `Claude login was not restored and local fallback failed to start: ${ollama.error}`,
-          ].join('\n'),
-        );
-        return;
-      }
-
       const switched = await this.deps.activateLocalFallback(chatJid);
+      if (!this.isActiveRecovery(chatJid, sequence)) return;
       if (!switched) {
         this.snapshot = {
           ...this.snapshot,

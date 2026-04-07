@@ -73,6 +73,9 @@ function prepareClaudeHostEnvironment(
   const groupDir = resolveGroupFolderPath(group.folder);
   const globalDir = path.join(GROUPS_DIR, 'global');
   const ipcDir = resolveGroupIpcPath(group.folder);
+  // Host-mode Claude auth only recovered reliably in testing when using the
+  // real ~/.claude directory. Keeping a per-group CLAUDE_CONFIG_DIR caused the
+  // browser login flow to stall and not restore credentials across runs.
   const claudeConfigDir = getClaudeHomeConfigDir();
   const skillsDir = path.join(claudeConfigDir, 'skills');
 
