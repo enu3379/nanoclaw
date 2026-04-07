@@ -76,20 +76,50 @@ jobs:
               };
             }
 
-            async function getFailedChecks(headSha) {
-              const checks = await github.rest.checks.listForRef({
+            const SELF_WORKFLOW = 'Notify NanoClaw PR Reviews';
+
+            async function getCheckResults(headSha) {
+              const checks = await github.paginate(github.rest.checks.listForRef, {
                 owner,
                 repo,
                 ref: headSha,
                 per_page: 100,
               });
 
-              return checks.data.check_runs
-                .filter((check) => {
-                  if (check.status !== 'completed') return false;
-                  return check.conclusion === 'failure' || check.conclusion === 'timed_out' || check.conclusion === 'cancelled';
-                })
-                .map((check) => check.name);
+              const nonFailingConclusions = new Set(['success', 'neutral', 'skipped']);
+              const runs = checks.filter((c) => c.name !== SELF_WORKFLOW);
+              const pending = runs.filter((c) => c.status !== 'completed');
+              const failed = runs
+                .filter(
+                  (c) =>
+                    c.status === 'completed' &&
+                    !nonFailingConclusions.has(c.conclusion || ''),
+                )
+                .map((c) => c.name);
+              const all = runs.map((c) => ({
+                name: c.name,
+                status: c.status,
+                conclusion: c.conclusion || null,
+                summary: (c.output?.summary || '').slice(0, 500),
+              }));
+
+              return { pending, failed, all, allCompleted: pending.length === 0 };
+            }
+
+            async function getReviewSummary(prNumber) {
+              const reviews = await github.paginate(github.rest.pulls.listReviews, {
+                owner,
+                repo,
+                pull_number: prNumber,
+                per_page: 100,
+              });
+              return reviews
+                .filter((r) => r.state !== 'PENDING')
+                .map((r) => ({
+                  author: r.user?.login || 'unknown',
+                  state: r.state,
+                  body: (r.body || '').slice(0, 500),
+                }));
             }
 
             async function addNotifyPayload(prNumber, workflowRunId) {
@@ -98,13 +128,14 @@ jobs:
               if (isBotLogin(pr.user?.login)) return;
               if (pr.state !== 'open' || pr.merged || pr.closed_at) return;
 
-              const failedChecks = await getFailedChecks(pr.head.sha);
-              const ciStatus =
-                failedChecks.length > 0
-                  ? 'failure'
-                  : context.eventName === 'workflow_run' && context.payload.workflow_run?.conclusion
-                    ? String(context.payload.workflow_run.conclusion)
-                    : 'success';
+              const { pending, failed, all, allCompleted } = await getCheckResults(pr.head.sha);
+              if (!allCompleted) {
+                core.info(`PR #${prNumber}: ${pending.length} check(s) still running, skipping`);
+                return;
+              }
+
+              const reviews = await getReviewSummary(prNumber);
+              const ciStatus = failed.length > 0 ? 'failure' : 'success';
 
               payloads.push({
                 type: 'github_pr_event',
@@ -119,7 +150,9 @@ jobs:
                 author: pr.user?.login || 'unknown',
                 ciStatus,
                 mergeability,
-                failedChecks,
+                failedChecks: failed,
+                checkResults: all,
+                reviews,
               });
             }
 

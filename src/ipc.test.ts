@@ -125,6 +125,82 @@ describe('processTaskIpc github_pr_event', () => {
     expect(enqueueSyntheticMessageMock).toHaveBeenCalled();
   });
 
+  it('action=notify omits analysis hint when no synthetic enqueue is configured', async () => {
+    const depsWithoutSyntheticEnqueue: IpcDeps = {
+      ...baseDeps,
+      enqueueSyntheticMessage: undefined,
+    };
+
+    await processTaskIpc(
+      {
+        type: 'github_pr_event',
+        action: 'notify',
+        groupFolder: 'pr-reviews',
+        repoFullName: 'enu3379/nanoclaw',
+        prNumber: 5,
+        headSha: 'abc123',
+        ciStatus: 'success',
+        mergeability: 'mergeable',
+        failedChecks: [],
+      },
+      'main',
+      true,
+      depsWithoutSyntheticEnqueue,
+    );
+
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      'dc:new-thread-id',
+      expect.not.stringContaining('Analyzing...'),
+    );
+  });
+
+  it('action=notify normalizes multiline check and review text in agent prompt', async () => {
+    await processTaskIpc(
+      {
+        type: 'github_pr_event',
+        action: 'notify',
+        groupFolder: 'pr-reviews',
+        repoFullName: 'enu3379/nanoclaw',
+        prNumber: 5,
+        headSha: 'abc123',
+        ciStatus: 'failure',
+        mergeability: 'conflicting',
+        failedChecks: ['ci'],
+        checkResults: [
+          {
+            name: 'ci',
+            status: 'completed',
+            conclusion: 'failure',
+            summary: 'first line\nsecond line',
+          },
+        ],
+        reviews: [
+          {
+            author: 'reviewer',
+            state: 'CHANGES_REQUESTED',
+            body: 'please fix\nthis section',
+          },
+        ],
+      },
+      'main',
+      true,
+      baseDeps,
+    );
+
+    expect(enqueueSyntheticMessageMock).toHaveBeenCalledWith(
+      'dc:new-thread-id',
+      'pr-enu3379-nanoclaw-5',
+      expect.stringContaining('- ci: failure — first line second line'),
+    );
+    expect(enqueueSyntheticMessageMock).toHaveBeenCalledWith(
+      'dc:new-thread-id',
+      'pr-enu3379-nanoclaw-5',
+      expect.stringContaining(
+        '- reviewer (CHANGES_REQUESTED): please fix this section',
+      ),
+    );
+  });
+
   it('action=notify skips when fingerprint matches', async () => {
     await processTaskIpc(
       {
