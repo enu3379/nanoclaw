@@ -172,10 +172,16 @@ jobs:
           payload_file="${{ steps.build-payloads.outputs.path }}"
           script="$HOME/nanoclaw/scripts/nanoclaw-notify-pr.sh"
 
-          jq -c '.[]' "${payload_file}" | while IFS= read -r payload; do
+          fail_count=0
+          while IFS= read -r payload; do
             printf '%s\n' "${payload}" | bash "${script}" || {
               status=$?
               echo "::warning::Failed to send payload (exit=${status})"
+              fail_count=$((fail_count + 1))
               continue
             }
-          done
+          done < <(jq -c '.[]' "${payload_file}")
+
+          if [[ "${fail_count}" -gt 0 ]]; then
+            echo "::warning::${fail_count} payload(s) failed to deliver"
+          fi
