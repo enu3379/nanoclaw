@@ -1,0 +1,19 @@
+name: Deploy to local Mac
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, mac-mini]
+    steps:
+      - name: Pull, build, restart
+        run: |
+          set -euo pipefail
+          cd ~/nanoclaw
+          git fetch origin main
+          git checkout main
+          git merge origin/main --ff-only
+          npm run build
+          launchctl kickstart -k gui/$(id -u)/com.nanoclaw
