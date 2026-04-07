@@ -759,7 +759,6 @@ async function main(): Promise<void> {
         is_from_me: false,
         is_bot_message: false,
       };
-      storeMessage(msg);
       storeChatMetadata(
         chatJid,
         timestamp,
@@ -767,6 +766,7 @@ async function main(): Promise<void> {
         inferChannelType(chatJid),
         true,
       );
+      storeMessage(msg);
       queue.enqueueMessageCheck(chatJid);
     },
     onTasksChanged: () => {
