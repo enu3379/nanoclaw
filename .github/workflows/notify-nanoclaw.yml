@@ -79,17 +79,22 @@ jobs:
             const SELF_WORKFLOW = 'Notify NanoClaw PR Reviews';
 
             async function getCheckResults(headSha) {
-              const checks = await github.rest.checks.listForRef({
+              const checks = await github.paginate(github.rest.checks.listForRef, {
                 owner,
                 repo,
                 ref: headSha,
                 per_page: 100,
               });
 
-              const runs = checks.data.check_runs.filter((c) => c.name !== SELF_WORKFLOW);
+              const nonFailingConclusions = new Set(['success', 'neutral', 'skipped']);
+              const runs = checks.filter((c) => c.name !== SELF_WORKFLOW);
               const pending = runs.filter((c) => c.status !== 'completed');
               const failed = runs
-                .filter((c) => c.status === 'completed' && (c.conclusion === 'failure' || c.conclusion === 'timed_out' || c.conclusion === 'cancelled'))
+                .filter(
+                  (c) =>
+                    c.status === 'completed' &&
+                    !nonFailingConclusions.has(c.conclusion || ''),
+                )
                 .map((c) => c.name);
               const all = runs.map((c) => ({
                 name: c.name,
@@ -102,12 +107,13 @@ jobs:
             }
 
             async function getReviewSummary(prNumber) {
-              const reviews = await github.rest.pulls.listReviews({
+              const reviews = await github.paginate(github.rest.pulls.listReviews, {
                 owner,
                 repo,
                 pull_number: prNumber,
+                per_page: 100,
               });
-              return reviews.data
+              return reviews
                 .filter((r) => r.state !== 'PENDING')
                 .map((r) => ({
                   author: r.user?.login || 'unknown',

@@ -76,20 +76,32 @@ interface ReviewEntry {
   body: string;
 }
 
+function normalizePromptInlineText(value: string): string {
+  return value
+    .replace(/\r?\n+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function buildPrStatusMessage(task: {
   prNumber?: number;
   prTitle?: string;
   ciStatus?: string;
   mergeability?: string;
+  includeAnalysisHint?: boolean;
 }): string {
-  const ci = task.ciStatus === 'success' ? 'CI passed' : `CI ${task.ciStatus || 'unknown'}`;
+  const ci =
+    task.ciStatus === 'success'
+      ? 'CI passed'
+      : `CI ${task.ciStatus || 'unknown'}`;
   const merge =
     task.mergeability === 'mergeable'
       ? 'merge OK'
       : task.mergeability === 'conflicting'
         ? 'conflicts'
         : 'merge unknown';
-  return `PR #${task.prNumber}${task.prTitle ? `: ${task.prTitle}` : ''} — ${ci}, ${merge}. Analyzing...`;
+  const analysisHint = task.includeAnalysisHint ? ' Analyzing...' : '';
+  return `PR #${task.prNumber}${task.prTitle ? `: ${task.prTitle}` : ''} — ${ci}, ${merge}.${analysisHint}`;
 }
 
 function buildPrAgentPrompt(task: {
@@ -124,7 +136,10 @@ function buildPrAgentPrompt(task: {
     lines.push('', '## Check Results');
     for (const c of task.checkResults) {
       const status = c.conclusion || c.status;
-      const summarySnippet = c.summary ? ` — ${c.summary}` : '';
+      const normalizedSummary = c.summary
+        ? normalizePromptInlineText(c.summary)
+        : '';
+      const summarySnippet = normalizedSummary ? ` — ${normalizedSummary}` : '';
       lines.push(`- ${c.name}: ${status}${summarySnippet}`);
     }
   }
@@ -132,7 +147,8 @@ function buildPrAgentPrompt(task: {
   if (task.reviews && task.reviews.length > 0) {
     lines.push('', '## Reviews');
     for (const r of task.reviews) {
-      const bodySnippet = r.body ? `: ${r.body}` : '';
+      const normalizedBody = r.body ? normalizePromptInlineText(r.body) : '';
+      const bodySnippet = normalizedBody ? `: ${normalizedBody}` : '';
       lines.push(`- ${r.author} (${r.state})${bodySnippet}`);
     }
   }
@@ -774,7 +790,10 @@ export async function processTaskIpc(
         const prGroupFolder = existing?.group_folder
           ? existing.group_folder
           : buildPrGroupFolder(data.repoFullName, data.prNumber);
-        const statusMessage = buildPrStatusMessage(data);
+        const statusMessage = buildPrStatusMessage({
+          ...data,
+          includeAnalysisHint: Boolean(deps.enqueueSyntheticMessage),
+        });
 
         if (shouldCreateNewThread) {
           deps.registerGroup(threadJid, {
