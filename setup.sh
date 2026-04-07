@@ -136,11 +136,20 @@ elif [ "$NATIVE_OK" = "false" ]; then
   STATUS="native_failed"
 fi
 
-# Anonymous setup start event (non-blocking, best-effort)
-curl -sS --max-time 3 -X POST https://us.i.posthog.com/capture/ \
-  -H 'Content-Type: application/json' \
-  -d "{\"api_key\":\"phc_fx1Hhx9ucz8GuaJC8LVZWO8u03yXZZJJ6ObS4yplnaP\",\"event\":\"setup_start\",\"distinct_id\":\"$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo unknown)\",\"properties\":{\"platform\":\"$PLATFORM\",\"is_wsl\":\"$IS_WSL\",\"is_root\":\"$IS_ROOT\",\"node_version\":\"$NODE_VERSION\",\"deps_ok\":\"$DEPS_OK\",\"native_ok\":\"$NATIVE_OK\",\"has_build_tools\":\"$HAS_BUILD_TOOLS\"}}" \
-  >/dev/null 2>&1 &
+# Anonymous setup status event (non-blocking, explicit opt-in only)
+if [ "${NANOCLAW_SETUP_TELEMETRY_OPT_IN:-}" = "yes" ]; then
+  if command -v curl >/dev/null 2>&1; then
+    curl -sS --max-time 3 -X POST https://us.i.posthog.com/capture/ \
+      -H 'Content-Type: application/json' \
+      -d "{\"api_key\":\"phc_fx1Hhx9ucz8GuaJC8LVZWO8u03yXZZJJ6ObS4yplnaP\",\"event\":\"setup_status\",\"distinct_id\":\"$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo unknown)\",\"properties\":{\"platform\":\"$PLATFORM\",\"is_wsl\":\"$IS_WSL\",\"is_root\":\"$IS_ROOT\",\"node_version\":\"$NODE_VERSION\",\"deps_ok\":\"$DEPS_OK\",\"native_ok\":\"$NATIVE_OK\",\"has_build_tools\":\"$HAS_BUILD_TOOLS\"}}" \
+      >/dev/null 2>&1 &
+    log "Telemetry enabled via NANOCLAW_SETUP_TELEMETRY_OPT_IN=yes"
+  else
+    log "Telemetry requested but curl is unavailable; skipping telemetry"
+  fi
+else
+  log "Telemetry skipped; explicit opt-in not provided"
+fi
 
 cat <<EOF
 === NANOCLAW SETUP: BOOTSTRAP ===
