@@ -47,6 +47,7 @@ function computePrFingerprint(task: {
   ciStatus?: string;
   mergeability?: string;
   failedChecks?: string[];
+  reviews?: ReviewEntry[];
 }): string {
   return createHash('sha256')
     .update(
@@ -54,37 +55,41 @@ function computePrFingerprint(task: {
         ciStatus: task.ciStatus || null,
         mergeability: task.mergeability || null,
         failedChecks: [...(task.failedChecks || [])].sort(),
+        reviews: (task.reviews || [])
+          .map((r) => `${r.author}:${r.state}`)
+          .sort(),
       }),
     )
     .digest('hex');
 }
 
+interface CheckResult {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  summary: string;
+}
+
+interface ReviewEntry {
+  author: string;
+  state: string;
+  body: string;
+}
+
 function buildPrStatusMessage(task: {
-  repoFullName?: string;
   prNumber?: number;
   prTitle?: string;
-  branch?: string;
-  author?: string;
-  headSha?: string;
   ciStatus?: string;
   mergeability?: string;
-  failedChecks?: string[];
 }): string {
-  const lines = [
-    `PR #${task.prNumber}${task.prTitle ? `: ${task.prTitle}` : ''}`,
-    task.repoFullName ? `Repo: ${task.repoFullName}` : null,
-    task.branch ? `Branch: ${task.branch}` : null,
-    task.author ? `Author: ${task.author}` : null,
-    task.headSha ? `Head SHA: ${task.headSha}` : null,
-    `CI: ${task.ciStatus || 'unknown'}`,
-    `Mergeability: ${task.mergeability || 'unknown'}`,
-  ];
-
-  if (task.failedChecks && task.failedChecks.length > 0) {
-    lines.push(`Failed checks: ${task.failedChecks.join(', ')}`);
-  }
-
-  return lines.filter((line): line is string => Boolean(line)).join('\n');
+  const ci = task.ciStatus === 'success' ? 'CI passed' : `CI ${task.ciStatus || 'unknown'}`;
+  const merge =
+    task.mergeability === 'mergeable'
+      ? 'merge OK'
+      : task.mergeability === 'conflicting'
+        ? 'conflicts'
+        : 'merge unknown';
+  return `PR #${task.prNumber}${task.prTitle ? `: ${task.prTitle}` : ''} — ${ci}, ${merge}. Analyzing...`;
 }
 
 function buildPrAgentPrompt(task: {
@@ -96,22 +101,54 @@ function buildPrAgentPrompt(task: {
   ciStatus?: string;
   mergeability?: string;
   failedChecks?: string[];
+  checkResults?: CheckResult[];
+  reviews?: ReviewEntry[];
 }): string {
-  return [
-    'PR review thread initialized.',
-    `PR #${task.prNumber}${task.prTitle ? `: ${task.prTitle}` : ''}`,
-    `Repository: ${task.repoFullName}`,
-    task.branch ? `Branch: ${task.branch}` : null,
-    task.author ? `Author: ${task.author}` : null,
-    `CI status: ${task.ciStatus || 'unknown'}`,
-    `Mergeability: ${task.mergeability || 'unknown'}`,
-    task.failedChecks && task.failedChecks.length > 0
-      ? `Failed checks: ${task.failedChecks.join(', ')}`
-      : null,
-    'Wait for user instructions. Use the GitHub plugin for merge, comment, request changes, or close actions.',
-  ]
-    .filter((line): line is string => Boolean(line))
-    .join('\n');
+  const lines: string[] = [
+    'Analyze this PR and provide a concise summary like CodeRabbit would.',
+    '',
+    '## PR Info',
+    `- PR #${task.prNumber}${task.prTitle ? `: ${task.prTitle}` : ''}`,
+    `- Repo: ${task.repoFullName}`,
+  ];
+  if (task.branch) lines.push(`- Branch: ${task.branch}`);
+  if (task.author) lines.push(`- Author: ${task.author}`);
+  lines.push(`- CI: ${task.ciStatus || 'unknown'}`);
+  lines.push(`- Mergeability: ${task.mergeability || 'unknown'}`);
+
+  if (task.failedChecks && task.failedChecks.length > 0) {
+    lines.push(`- Failed checks: ${task.failedChecks.join(', ')}`);
+  }
+
+  if (task.checkResults && task.checkResults.length > 0) {
+    lines.push('', '## Check Results');
+    for (const c of task.checkResults) {
+      const status = c.conclusion || c.status;
+      const summarySnippet = c.summary ? ` — ${c.summary}` : '';
+      lines.push(`- ${c.name}: ${status}${summarySnippet}`);
+    }
+  }
+
+  if (task.reviews && task.reviews.length > 0) {
+    lines.push('', '## Reviews');
+    for (const r of task.reviews) {
+      const bodySnippet = r.body ? `: ${r.body}` : '';
+      lines.push(`- ${r.author} (${r.state})${bodySnippet}`);
+    }
+  }
+
+  lines.push(
+    '',
+    '## Instructions',
+    '1. Summarize the overall PR status in 2-3 sentences.',
+    '2. If there are review comments or failed checks, list specific action items.',
+    '3. If everything passes and reviews approve, say it is ready to merge.',
+    '4. Be concise and actionable, like CodeRabbit.',
+    '5. After your summary, wait for user commands (merge, comment, request changes, close).',
+    '6. Use the GitHub plugin for actual PR actions.',
+  );
+
+  return lines.join('\n');
 }
 
 const PR_AGENT_FILE_TEXT = {
@@ -368,6 +405,8 @@ export async function processTaskIpc(
     ciStatus?: string;
     mergeability?: string;
     failedChecks?: string[];
+    checkResults?: CheckResult[];
+    reviews?: ReviewEntry[];
     merged?: boolean;
     // For register_group
     jid?: string;
@@ -770,7 +809,7 @@ export async function processTaskIpc(
         );
         await deps.sendMessage(threadJid, statusMessage);
 
-        if (shouldCreateNewThread && deps.enqueueSyntheticMessage) {
+        if (deps.enqueueSyntheticMessage) {
           deps.enqueueSyntheticMessage(
             threadJid,
             prGroupFolder,
@@ -783,6 +822,8 @@ export async function processTaskIpc(
               ciStatus: data.ciStatus,
               mergeability: data.mergeability,
               failedChecks: data.failedChecks,
+              checkResults: data.checkResults,
+              reviews: data.reviews,
             }),
           );
         }
