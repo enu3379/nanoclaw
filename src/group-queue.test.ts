@@ -481,4 +481,64 @@ describe('GroupQueue', () => {
     resolveProcess!();
     await vi.advanceTimersByTimeAsync(10);
   });
+
+  it('removes inactive group state from queue', async () => {
+    const processMessages = vi.fn(async () => true);
+    queue.setProcessMessagesFn(processMessages);
+
+    queue.enqueueMessageCheck('dc:test-group');
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(queue.getStatus().some((s) => s.groupJid === 'dc:test-group')).toBe(
+      true,
+    );
+
+    expect(queue.removeGroup('dc:test-group')).toBe(true);
+
+    expect(queue.getStatus().some((s) => s.groupJid === 'dc:test-group')).toBe(
+      false,
+    );
+  });
+
+  it('does not remove group state if group is active', async () => {
+    let resolveTask: () => void;
+    const taskFn = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveTask = resolve;
+        }),
+    );
+
+    queue.enqueueTask('dc:active-group', 'task-1', taskFn);
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(queue.removeGroup('dc:active-group')).toBe(false);
+
+    expect(
+      queue.getStatus().some((s) => s.groupJid === 'dc:active-group'),
+    ).toBe(true);
+
+    resolveTask!();
+    await vi.advanceTimersByTimeAsync(10);
+  });
+
+  it('does not remove group state if pending messages exist', async () => {
+    let resolveFirst: () => void;
+    const processMessages = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveFirst = () => resolve(true);
+        }),
+    );
+    queue.setProcessMessagesFn(processMessages);
+
+    queue.enqueueMessageCheck('dc:pending-group');
+    await vi.advanceTimersByTimeAsync(10);
+    queue.enqueueMessageCheck('dc:pending-group');
+
+    expect(queue.removeGroup('dc:pending-group')).toBe(false);
+
+    resolveFirst!();
+    await vi.advanceTimersByTimeAsync(10);
+  });
 });
