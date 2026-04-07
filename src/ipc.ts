@@ -117,7 +117,7 @@ function buildPrAgentPrompt(task: {
   reviews?: ReviewEntry[];
 }): string {
   const lines: string[] = [
-    'Analyze this PR and provide a concise summary like CodeRabbit would.',
+    '이 PR의 상태를 분석하고 CodeRabbit처럼 간결하게 요약해주세요. 반드시 한국어로 답변하세요.',
     '',
     '## PR Info',
     `- PR #${task.prNumber}${task.prTitle ? `: ${task.prTitle}` : ''}`,
@@ -155,13 +155,14 @@ function buildPrAgentPrompt(task: {
 
   lines.push(
     '',
-    '## Instructions',
-    '1. Summarize the overall PR status in 2-3 sentences.',
-    '2. If there are review comments or failed checks, list specific action items.',
-    '3. If everything passes and reviews approve, say it is ready to merge.',
-    '4. Be concise and actionable, like CodeRabbit.',
-    '5. After your summary, wait for user commands (merge, comment, request changes, close).',
-    '6. Use the GitHub plugin for actual PR actions.',
+    '## 지시사항',
+    '1. PR 전체 상태를 2-3문장으로 요약해주세요.',
+    '2. 리뷰 코멘트나 실패한 체크가 있으면 구체적인 수정 사항을 알려주세요.',
+    '3. 모든 체크가 통과하고 리뷰도 승인이면 바로 머지 가능하다고 알려주세요.',
+    '4. CodeRabbit처럼 간결하고 실행 가능한 형태로 작성해주세요.',
+    '5. 요약 후 사용자 명령을 기다려주세요 (머지, 코멘트, 수정 요청, 닫기 등).',
+    '6. 실제 PR 작업은 GitHub 플러그인을 사용하세요.',
+    '7. 모든 응답은 반드시 한국어로 작성하세요.',
   );
 
   return lines.join('\n');
@@ -212,6 +213,7 @@ const PR_AGENT_FILE_TEXT = {
       '- 명령 전에는 PR 상태 요약만 간단히 답하고 대기',
       '- GitHub plugin을 사용해서 실제 액션 수행',
       '- 에러 발생 시 명확하게 알림',
+      '- 모든 응답은 반드시 한국어로 작성',
     ],
   },
 } as const;

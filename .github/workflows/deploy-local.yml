@@ -8,7 +8,7 @@ jobs:
   deploy:
     runs-on: [self-hosted, mac-mini]
     steps:
-      - name: Pull, build, restart
+      - name: Pull and build
         run: |
           set -euo pipefail
           cd ~/nanoclaw
@@ -16,4 +16,27 @@ jobs:
           git checkout main
           git merge origin/main --ff-only
           npm run build
-          launchctl kickstart -k gui/$(id -u)/com.nanoclaw
+
+      - name: Restart NanoClaw
+        run: launchctl kickstart -k gui/$(id -u)/com.nanoclaw
+
+      - name: Verify running
+        run: |
+          set -euo pipefail
+          attempts=15
+          delay=2
+
+          for attempt in $(seq 1 "$attempts"); do
+            if launchctl print gui/$(id -u)/com.nanoclaw | grep -q 'state = running'; then
+              echo "NanoClaw restarted successfully"
+              exit 0
+            fi
+
+            if [ "$attempt" -lt "$attempts" ]; then
+              echo "Waiting for NanoClaw to reach running state ($attempt/$attempts)..."
+              sleep "$delay"
+            fi
+          done
+
+          echo "::error::NanoClaw failed to start after $((attempts * delay)) seconds"
+          exit 1
