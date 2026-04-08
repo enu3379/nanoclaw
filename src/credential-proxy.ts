@@ -18,25 +18,23 @@ import { createServer, Server } from 'http';
 import { request as httpsRequest } from 'https';
 import { request as httpRequest, RequestOptions } from 'http';
 import fs from 'fs';
-import os from 'os';
-import path from 'path';
 
+import {
+  getClaudeAuthStatus,
+  getClaudeCredentialsPath,
+  readClaudeAccessToken,
+} from './claude-auth.js';
 import { isError, isSyntaxError } from './error-utils.js';
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
 
-const CRED_PATH = path.join(os.homedir(), '.claude', '.credentials.json');
+const CRED_PATH = getClaudeCredentialsPath();
 
 /** Read the latest OAuth access token from ~/.claude/.credentials.json */
 function readClaudeCredentials(): string | undefined {
-  try {
-    const raw = fs.readFileSync(CRED_PATH, 'utf-8');
-    const creds = JSON.parse(raw);
-    return creds?.claudeAiOauth?.accessToken as string | undefined;
-  } catch (err) {
-    if (!isError(err) && !isSyntaxError(err)) throw err;
-    return undefined;
-  }
+  const auth = getClaudeAuthStatus();
+  if (auth.mode !== 'oauth' || auth.tokenStatus !== 'valid') return undefined;
+  return readClaudeAccessToken();
 }
 
 /** In-flight refresh promise — prevents concurrent refresh races */
@@ -322,6 +320,6 @@ export function startCredentialProxy(
 
 /** Detect which auth mode the host is configured for. */
 export function detectAuthMode(): AuthMode {
-  const secrets = readEnvFile(['ANTHROPIC_API_KEY']);
-  return secrets.ANTHROPIC_API_KEY ? 'api-key' : 'oauth';
+  const auth = getClaudeAuthStatus();
+  return auth.mode === 'api-key' ? 'api-key' : 'oauth';
 }

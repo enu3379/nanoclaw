@@ -62,7 +62,7 @@ import {
   formatMessages,
   formatOutbound,
 } from './router.js';
-import { ensureRequiredRuntimes } from './runtimes/index.js';
+import { ensureRequiredRuntimes, getAgentType } from './runtimes/index.js';
 import { restoreRemoteControl } from './remote-control.js';
 import {
   isSenderAllowed,
@@ -73,6 +73,11 @@ import {
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
+import { ClaudeAuthRecoveryService } from './claude-auth-recovery.js';
+import {
+  ensureOllamaServerRunning,
+  resolvePreferredOllamaModel,
+} from './model-switch.js';
 import { dbAgentSessionRepository } from './repositories/agent-session-repository.js';
 import { AgentExecutionService } from './services/agent-execution-service.js';
 import { AgentSessionService } from './services/agent-session-service.js';
@@ -96,6 +101,7 @@ const sessionService = new AgentSessionService(
 );
 let agentExecutionService: AgentExecutionService;
 let pairedRoomService: PairedRoomService;
+let claudeAuthRecoveryService: ClaudeAuthRecoveryService;
 
 const onecli = new OneCLI({ url: ONECLI_URL });
 
@@ -599,6 +605,36 @@ async function main(): Promise<void> {
     getRegisteredGroups: () => registeredGroups,
     queue,
     sessionService,
+    getClaudeRecoverySnapshot: () => claudeAuthRecoveryService.getSnapshot(),
+  });
+  claudeAuthRecoveryService = new ClaudeAuthRecoveryService({
+    getRegisteredGroups: () => registeredGroups,
+    notifyChat: async (chatJid, text) => {
+      const channel = findChannel(channels, chatJid);
+      if (!channel) return;
+      await channel.sendMessage(chatJid, text);
+    },
+    activateLocalFallback: async (chatJid) => {
+      const group = registeredGroups[chatJid];
+      if (!group || getAgentType(group) !== 'claude-code') return false;
+      const ollama = await ensureOllamaServerRunning();
+      if (!ollama.ok) return false;
+
+      const updatedGroup: RegisteredGroup = {
+        ...group,
+        containerConfig: {
+          ...group.containerConfig,
+          providerPreset: 'ollama',
+          model: resolvePreferredOllamaModel(),
+          reasoningEffort: undefined,
+        },
+      };
+      registeredGroups[chatJid] = updatedGroup;
+      setRegisteredGroup(chatJid, updatedGroup);
+      sessionService.clearLiveSession(updatedGroup.folder, 'claude-code');
+      queue.closeStdin(chatJid);
+      return true;
+    },
   });
   agentExecutionService = new AgentExecutionService({
     assistantName: ASSISTANT_NAME,
@@ -606,6 +642,7 @@ async function main(): Promise<void> {
     sessionService,
     getAvailableGroups,
     getRegisteredJids: () => new Set(Object.keys(registeredGroups)),
+    claudeAuthRecovery: claudeAuthRecoveryService,
   });
   pairedRoomService = new PairedRoomService({
     channels,

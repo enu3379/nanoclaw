@@ -2,6 +2,8 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
+import { getClaudeAuthStatus, getClaudeHomeConfigDir } from '../claude-auth.js';
+import type { ClaudeRecoverySnapshot } from '../claude-auth-recovery.js';
 import {
   deleteRegisteredGroup,
   getAllGroupsForJid,
@@ -30,6 +32,7 @@ interface ChannelCommandServiceDeps {
   getRegisteredGroups: () => Record<string, RegisteredGroup>;
   queue: GroupQueue;
   sessionService: AgentSessionService;
+  getClaudeRecoverySnapshot?: () => ClaudeRecoverySnapshot;
 }
 
 export function createChannelCommandService(deps: ChannelCommandServiceDeps): {
@@ -157,6 +160,12 @@ export function createChannelCommandService(deps: ChannelCommandServiceDeps): {
       group.folder,
       getAgentType(group),
     );
+    const claudeConfigDir = getClaudeHomeConfigDir();
+    const claudeAuth = getClaudeAuthStatus({
+      providerPreset: group.containerConfig?.providerPreset,
+    });
+    const recovery = deps.getClaudeRecoverySnapshot?.();
+    const recoveryState = recovery?.state || 'disabled';
     const agentCursorRaw = getRouterState('last_agent_timestamp');
     let lastAgentCursor = '-';
     if (agentCursorRaw) {
@@ -177,6 +186,9 @@ export function createChannelCommandService(deps: ChannelCommandServiceDeps): {
       `Queue: \`${queueStatus.status}\`${queueStatus.elapsedMs !== null ? ` (${formatElapsed(queueStatus.elapsedMs)})` : ''}`,
       `Pending: messages=\`${queueStatus.pendingMessages ? 'yes' : 'no'}\`, tasks=\`${queueStatus.pendingTasks}\``,
       `Session: \`${sessionId || 'none'}\``,
+      `Claude auth: mode=\`${claudeAuth.mode}\`, source=\`${claudeAuth.source}\`, token=\`${claudeAuth.tokenStatus}\`${claudeAuth.expiresAt ? `, expires=\`${claudeAuth.expiresAt}\`` : ''}`,
+      `Claude paths: config=\`${claudeConfigDir}\`, credentials=\`${claudeAuth.credentialsPath}\``,
+      `Claude recovery: state=\`${recoveryState}\`${recovery?.recoveryUrl ? ', link=`available`' : ''}${recovery?.lastAuthFailureAt ? `, last_failure=\`${recovery.lastAuthFailureAt}\`` : ''}${recovery?.lastRecoveredAt ? `, last_recovered=\`${recovery.lastRecoveredAt}\`` : ''}${recovery?.lastFallbackAt ? `, last_fallback=\`${recovery.lastFallbackAt}\`` : ''}`,
       `Cursor: \`${lastAgentCursor}\``,
       `Channel: \`${chatJid}\` folder=\`${group.folder}\``,
     ];

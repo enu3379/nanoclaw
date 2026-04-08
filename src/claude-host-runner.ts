@@ -1,6 +1,5 @@
 import { ChildProcess, spawn } from 'child_process';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 
 import {
@@ -11,6 +10,11 @@ import {
   IDLE_TIMEOUT,
   TIMEZONE,
 } from './config.js';
+import {
+  getClaudeHomeConfigDir,
+  getClaudeAuthStatus,
+  readClaudeAccessToken,
+} from './claude-auth.js';
 import { isErrnoException, isSyntaxError } from './error-utils.js';
 import { readEnvFile } from './env.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
@@ -61,66 +65,6 @@ function ensureClaudeSessionSettings(configDir: string): void {
   fs.writeFileSync(settingsFile, JSON.stringify(merged, null, 2) + '\n');
 }
 
-function readClaudeUserSettingsEnv(): Record<string, string> {
-  const settingsFile = path.join(os.homedir(), '.claude', 'settings.json');
-  if (!fs.existsSync(settingsFile)) return {};
-  try {
-    const parsed = JSON.parse(fs.readFileSync(settingsFile, 'utf-8')) as {
-      env?: Record<string, string>;
-    };
-    return parsed.env || {};
-  } catch (err) {
-    if (!isSyntaxError(err) && !isErrnoException(err, 'ENOENT')) throw err;
-    return {};
-  }
-}
-
-function hasValidLocalClaudeCredentials(): boolean {
-  const credentialsFile = path.join(
-    os.homedir(),
-    '.claude',
-    '.credentials.json',
-  );
-  if (!fs.existsSync(credentialsFile)) return false;
-  try {
-    const data = JSON.parse(fs.readFileSync(credentialsFile, 'utf-8')) as {
-      claudeAiOauth?: { accessToken?: string; expiresAt?: number };
-    };
-    const accessToken = data.claudeAiOauth?.accessToken;
-    const expiresAt = data.claudeAiOauth?.expiresAt;
-    if (!accessToken) return false;
-    if (typeof expiresAt !== 'number') return true;
-    return expiresAt > Date.now();
-  } catch (err) {
-    if (!isSyntaxError(err) && !isErrnoException(err, 'ENOENT')) throw err;
-    return false;
-  }
-}
-
-function getLocalClaudeOauthAccessToken(): string | undefined {
-  const credentialsFile = path.join(
-    os.homedir(),
-    '.claude',
-    '.credentials.json',
-  );
-  if (!fs.existsSync(credentialsFile)) return undefined;
-  try {
-    const data = JSON.parse(fs.readFileSync(credentialsFile, 'utf-8')) as {
-      claudeAiOauth?: { accessToken?: string; expiresAt?: number };
-    };
-    const accessToken = data.claudeAiOauth?.accessToken;
-    const expiresAt = data.claudeAiOauth?.expiresAt;
-    if (!accessToken) return undefined;
-    if (typeof expiresAt === 'number' && expiresAt <= Date.now()) {
-      return undefined;
-    }
-    return accessToken;
-  } catch (err) {
-    if (!isSyntaxError(err) && !isErrnoException(err, 'ENOENT')) throw err;
-    return undefined;
-  }
-}
-
 function prepareClaudeHostEnvironment(
   group: RegisteredGroup,
   input: ClaudeHostInput,
@@ -130,6 +74,7 @@ function prepareClaudeHostEnvironment(
   const ipcDir = resolveGroupIpcPath(group.folder);
   const sessionRoot = path.join(DATA_DIR, 'sessions', group.folder);
   const claudeConfigDir = path.join(sessionRoot, '.claude');
+  const authConfigDir = getClaudeHomeConfigDir();
   const skillsDir = path.join(claudeConfigDir, 'skills');
 
   fs.mkdirSync(groupDir, { recursive: true });
@@ -142,7 +87,6 @@ function prepareClaudeHostEnvironment(
   ensureClaudeSessionSettings(claudeConfigDir);
   syncDirectoryEntries(
     [
-      path.join(os.homedir(), '.claude', 'skills'),
       path.join(groupDir, '.claude', 'skills'),
       path.join(process.cwd(), 'container', 'skills'),
     ],
@@ -157,9 +101,18 @@ function prepareClaudeHostEnvironment(
   const pathValue = currentPath.includes(homebrewBin)
     ? currentPath
     : `${homebrewBin}:${currentPath || '/usr/local/bin:/usr/bin:/bin'}`;
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const key of [
+    'ANTHROPIC_API_KEY',
+    'ANTHROPIC_AUTH_TOKEN',
+    'ANTHROPIC_BASE_URL',
+    'CLAUDE_CODE_OAUTH_TOKEN',
+    'CLAUDE_API_KEY',
+  ] as const) {
+    delete env[key];
+  }
 
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
+  Object.assign(env, {
     PATH: pathValue,
     TZ: TIMEZONE,
     NANOCLAW_GROUP_DIR: groupDir,
@@ -169,7 +122,7 @@ function prepareClaudeHostEnvironment(
     NANOCLAW_GROUP_FOLDER: input.groupFolder,
     NANOCLAW_IS_MAIN: input.isMain ? '1' : '0',
     CLAUDE_CONFIG_DIR: claudeConfigDir,
-  };
+  });
 
   const envVars = readEnvFile([
     'ANTHROPIC_API_KEY',
@@ -180,31 +133,41 @@ function prepareClaudeHostEnvironment(
     'CLAUDE_THINKING',
     'CLAUDE_THINKING_BUDGET',
     'CLAUDE_EFFORT',
+    'NANOCLAW_OLLAMA_BASE_URL',
+    'NANOCLAW_OLLAMA_AUTH_TOKEN',
   ]);
-  const shouldUseEnvClaudeOauthOverride = !hasValidLocalClaudeCredentials();
-  const localClaudeOauthAccessToken = getLocalClaudeOauthAccessToken();
-  const userClaudeSettingsEnv = readClaudeUserSettingsEnv();
+  const authStatus = getClaudeAuthStatus({
+    providerPreset: group.containerConfig?.providerPreset,
+  });
+  const shouldUseEnvClaudeOauthOverride =
+    authStatus.mode === 'missing' ||
+    authStatus.source === 'env' ||
+    authStatus.tokenStatus !== 'valid';
+  const localClaudeOauthAccessToken = readClaudeAccessToken(authConfigDir);
+  const envClaudeOauthToken =
+    envVars.CLAUDE_CODE_OAUTH_TOKEN ||
+    envVars.ANTHROPIC_AUTH_TOKEN ||
+    process.env.CLAUDE_CODE_OAUTH_TOKEN ||
+    process.env.ANTHROPIC_AUTH_TOKEN;
+
   for (const key of [
-    'ANTHROPIC_API_KEY',
-    'ANTHROPIC_AUTH_TOKEN',
-    'ANTHROPIC_BASE_URL',
-    'CLAUDE_CODE_OAUTH_TOKEN',
     'CLAUDE_MODEL',
     'CLAUDE_THINKING',
     'CLAUDE_THINKING_BUDGET',
     'CLAUDE_EFFORT',
   ] as const) {
-    if (key === 'CLAUDE_CODE_OAUTH_TOKEN') {
-      const value =
-        localClaudeOauthAccessToken ||
-        (shouldUseEnvClaudeOauthOverride
-          ? envVars[key] || process.env[key]
-          : undefined);
-      if (value) env[key] = value;
-      continue;
-    }
     const value = envVars[key] || process.env[key];
     if (value) env[key] = value;
+  }
+
+  if (authStatus.mode === 'api-key') {
+    const apiKey = envVars.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
+    if (apiKey) env.ANTHROPIC_API_KEY = apiKey;
+  } else {
+    const oauthToken =
+      localClaudeOauthAccessToken ||
+      (shouldUseEnvClaudeOauthOverride ? envClaudeOauthToken : undefined);
+    if (oauthToken) env.CLAUDE_CODE_OAUTH_TOKEN = oauthToken;
   }
 
   const config = group.containerConfig;
@@ -218,10 +181,14 @@ function prepareClaudeHostEnvironment(
   }
   if (config?.providerPreset === 'ollama') {
     const baseUrl =
-      userClaudeSettingsEnv.ANTHROPIC_BASE_URL || 'http://localhost:11434';
+      envVars.NANOCLAW_OLLAMA_BASE_URL ||
+      process.env.NANOCLAW_OLLAMA_BASE_URL ||
+      'http://localhost:11434';
     env.ANTHROPIC_BASE_URL = baseUrl;
     env.ANTHROPIC_AUTH_TOKEN =
-      userClaudeSettingsEnv.ANTHROPIC_AUTH_TOKEN || 'ollama';
+      envVars.NANOCLAW_OLLAMA_AUTH_TOKEN ||
+      process.env.NANOCLAW_OLLAMA_AUTH_TOKEN ||
+      'ollama';
     delete env.ANTHROPIC_API_KEY;
     delete env.CLAUDE_CODE_OAUTH_TOKEN;
   } else if (config?.providerPreset === 'anthropic') {
