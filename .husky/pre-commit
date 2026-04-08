@@ -1,2 +1,3 @@
+npm run check:staged-format
 npm run check:secrets
 npm run check:staged-lint

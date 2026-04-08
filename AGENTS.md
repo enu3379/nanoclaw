@@ -51,6 +51,21 @@
 - `npm test` 전체 통과
 - 변경된 파일 목록이 계획과 일치하는지 확인
 
+## 자동화 규칙
+
+- staged 코드 포맷은 `npm run check:staged-format`으로 pre-commit에서 자동 정리한다.
+- staged TS/JS lint는 `npm run check:staged-lint`으로 pre-commit에서 자동 수정 후 재-staging한다.
+- push 전 검증은 `npm run ci:local`로 수행하며, CI와 최대한 같은 순서로 검사한다.
+- PR 생성 전 `npm run pr:preflight`를 실행해 worktree, 브랜치, origin, clean working tree를 확인한다.
+- `gh pr create` 시 반드시 `--repo enu3379/nanoclaw`를 포함한다.
+- Claude hook은 메인 repo checkout에서의 branch 전환, feature 작업 커밋, 잘못된 PR 생성을 차단한다.
+
+## 코드 작성 규칙
+
+- TypeScript를 수정할 때는 같은 디렉토리의 기존 파일 패턴을 먼저 읽고 맞춘다.
+- 포맷은 추측하지 말고 pre-commit의 Prettier 결과를 기준으로 확정한다.
+- lint/format만 깨지는 후속 커밋이 나오지 않도록 구현 직후 `npm run ci:local` 또는 필요한 하위 검증을 먼저 돌린다.
+
 ## 브랜치 규칙
 
 - `feat/<summary>` — 새 기능
