@@ -35,7 +35,7 @@ NanoClaw 레포에서 반복되는 branch/worktree/CI/PR/review 후속 수정을
 - `scripts/lint-staged.sh`
   - staged TS/JS 파일에 ESLint `--fix` 적용 후 재-staging
 - `scripts/ci-local.sh`
-  - `format:check -> lint -> typecheck -> build -> build:runners -> test`
+  - `format:check -> lint -> typecheck -> build -> npm --prefix container/agent-runner ci -> build:runners -> test`
 - `scripts/pr-preflight.sh`
   - worktree 경로, 브랜치, origin, clean working tree 점검
 

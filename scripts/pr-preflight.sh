@@ -4,9 +4,11 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 branch="$(git branch --show-current)"
 origin_url="$(git remote get-url origin)"
+git_dir="$(git rev-parse --path-format=absolute --git-dir)"
+git_common_dir="$(git rev-parse --path-format=absolute --git-common-dir)"
 
-if [[ "${repo_root}" == "/Users/eunu03/nanoclaw" ]]; then
-  echo "Refusing to create a PR from the main repo checkout. Use a worktree under /tmp instead." >&2
+if [[ "${git_dir}" == "${git_common_dir}" ]]; then
+  echo "Refusing to create a PR from the main repo checkout. Use a linked worktree instead." >&2
   exit 1
 fi
 
