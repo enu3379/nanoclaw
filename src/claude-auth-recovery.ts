@@ -209,6 +209,7 @@ export class ClaudeAuthRecoveryService {
           );
         }
       } catch (err) {
+        if (!(err instanceof Error)) throw err;
         this.clearTimers();
         this.recoveringForChat = null;
         this.snapshot = {

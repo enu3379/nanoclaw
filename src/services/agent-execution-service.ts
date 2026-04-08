@@ -130,6 +130,7 @@ export class AgentExecutionService {
               output.error || 'Claude authentication failed',
             );
           } catch (err) {
+            if (!isError(err)) throw err;
             logger.error(
               { group: group.name, err },
               'Claude auth recovery hook failed',
@@ -147,6 +148,7 @@ export class AgentExecutionService {
             chatJid,
           );
         } catch (err) {
+          if (!isError(err)) throw err;
           logger.error(
             { group: group.name, err },
             'Claude auth recovery success hook failed',
