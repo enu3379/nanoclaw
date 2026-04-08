@@ -376,6 +376,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     chatJid,
     async (result) => {
       // Streaming output callback — called for each agent result
+      const isFinalChunk = result.phase !== 'progress';
       if (result.result) {
         const raw =
           typeof result.result === 'string'
@@ -392,7 +393,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         resetIdleTimer();
       }
 
-      if (result.status === 'success') {
+      if (result.status === 'success' && isFinalChunk) {
         queue.notifyIdle(chatJid);
         clearTyping();
       }

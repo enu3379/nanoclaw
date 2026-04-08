@@ -48,6 +48,7 @@ export interface ContainerInput {
 export interface ContainerOutput {
   status: 'success' | 'error';
   result: string | null;
+  phase?: 'progress' | 'final';
   newSessionId?: string;
   error?: string;
 }
