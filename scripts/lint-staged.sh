@@ -27,4 +27,7 @@ if [[ ${#staged_files[@]} -eq 0 || -z "${staged_files[0]:-}" ]]; then
   exit 0
 fi
 
-npx eslint --quiet "${staged_files[@]}"
+npx eslint --fix --quiet "${staged_files[@]}"
+git add -- "${staged_files[@]}"
+
+echo "Linted staged files with ESLint."
