@@ -231,6 +231,20 @@ export function _setRegisteredGroups(
 }
 
 /**
+ * Internal helper exposed for tests:
+ * track whether at least one final, user-visible chunk was delivered.
+ */
+export function _markFinalOutputDeliveryForTests(
+  finalOutputSentToUser: boolean,
+  phase: 'progress' | 'final' | undefined,
+  hasVisibleText: boolean,
+): boolean {
+  if (finalOutputSentToUser) return true;
+  if (!hasVisibleText) return false;
+  return phase !== 'progress';
+}
+
+/**
  * Process all pending messages for a group.
  * Called by the GroupQueue when it's this group's turn.
  */
@@ -368,7 +382,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   };
 
   let hadError = false;
-  let outputSentToUser = false;
+  let finalOutputSentToUser = false;
 
   const output = await agentExecutionService.runForGroup(
     group,
@@ -387,8 +401,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         logger.info({ group: group.name }, `Agent output: ${raw.length} chars`);
         if (text) {
           await channel.sendMessage(chatJid, text);
-          outputSentToUser = true;
         }
+        finalOutputSentToUser = _markFinalOutputDeliveryForTests(
+          finalOutputSentToUser,
+          result.phase,
+          text.length > 0,
+        );
         // Only reset idle timer on actual results, not session-update markers (result: null)
         resetIdleTimer();
       }
@@ -411,10 +429,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   if (output === 'error' || hadError) {
     // If we already sent output to the user, don't roll back the cursor —
     // the user got their response and re-processing would send duplicates.
-    if (outputSentToUser) {
+    if (finalOutputSentToUser) {
       logger.warn(
         { group: group.name },
-        'Agent error after output was sent, skipping cursor rollback to prevent duplicates',
+        'Agent error after final output was sent, skipping cursor rollback to prevent duplicates',
       );
       return true;
     }
