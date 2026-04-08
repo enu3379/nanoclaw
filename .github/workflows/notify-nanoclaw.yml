@@ -35,6 +35,8 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const payloads = [];
+            const CHECK_POLL_INTERVAL_MS = 15000;
+            const CHECK_POLL_TIMEOUT_MS = 4 * 60 * 1000;
 
             function isBotLogin(login) {
               return typeof login === 'string' && /\[bot\]$/.test(login);
@@ -88,7 +90,12 @@ jobs:
 
               const nonFailingConclusions = new Set(['success', 'neutral', 'skipped']);
               const runs = checks.filter((c) => c.name !== SELF_WORKFLOW);
-              const pending = runs.filter((c) => c.status !== 'completed');
+              const pending = runs
+                .filter((c) => c.status !== 'completed')
+                .map((c) => ({
+                  name: c.name,
+                  status: c.status,
+                }));
               const failed = runs
                 .filter(
                   (c) =>
@@ -104,6 +111,40 @@ jobs:
               }));
 
               return { pending, failed, all, allCompleted: pending.length === 0 };
+            }
+
+            function formatPendingChecks(pending) {
+              if (pending.length === 0) return 'none';
+              return pending.map((c) => `${c.name} (${c.status})`).join(', ');
+            }
+
+            async function waitForChecksToSettle(prNumber, headSha) {
+              let results = await getCheckResults(headSha);
+              if (results.allCompleted) {
+                return results;
+              }
+
+              const deadline = Date.now() + CHECK_POLL_TIMEOUT_MS;
+              core.info(
+                `PR #${prNumber}: waiting for pending checks: ${formatPendingChecks(results.pending)}`,
+              );
+
+              while (Date.now() < deadline) {
+                await wait(CHECK_POLL_INTERVAL_MS);
+                results = await getCheckResults(headSha);
+                if (results.allCompleted) {
+                  core.info(`PR #${prNumber}: all checks completed after polling`);
+                  return results;
+                }
+                core.info(
+                  `PR #${prNumber}: still waiting on checks: ${formatPendingChecks(results.pending)}`,
+                );
+              }
+
+              core.info(
+                `PR #${prNumber}: timed out waiting for checks: ${formatPendingChecks(results.pending)}`,
+              );
+              return results;
             }
 
             async function getReviewSummary(prNumber) {
@@ -128,9 +169,14 @@ jobs:
               if (isBotLogin(pr.user?.login)) return;
               if (pr.state !== 'open' || pr.merged || pr.closed_at) return;
 
-              const { pending, failed, all, allCompleted } = await getCheckResults(pr.head.sha);
+              const { pending, failed, all, allCompleted } = await waitForChecksToSettle(
+                prNumber,
+                pr.head.sha,
+              );
               if (!allCompleted) {
-                core.info(`PR #${prNumber}: ${pending.length} check(s) still running, skipping`);
+                core.info(
+                  `PR #${prNumber}: ${pending.length} check(s) still running after polling, skipping`,
+                );
                 return;
               }
 
