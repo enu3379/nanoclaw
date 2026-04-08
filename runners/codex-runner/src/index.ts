@@ -220,11 +220,22 @@ async function executeAppServerTurn(
   prompt: string,
 ): Promise<{ result: string | null; interrupted: boolean }> {
   let interrupted = false;
-  const activeTurn = await client.startTurn(threadId, parseAppServerInput(prompt), {
-    cwd: GROUP_DIR,
-    model: CODEX_MODEL || undefined,
-    effort: CODEX_EFFORT || undefined,
-  });
+  const activeTurn = await client.startTurn(
+    threadId,
+    parseAppServerInput(prompt),
+    {
+      cwd: GROUP_DIR,
+      model: CODEX_MODEL || undefined,
+      effort: CODEX_EFFORT || undefined,
+      onProgress: (message) => {
+        writeOutput({
+          status: 'success',
+          result: message,
+          phase: 'progress',
+        });
+      },
+    },
+  );
 
   let polling = true;
   const pollDuringTurn = async (): Promise<void> => {
@@ -344,6 +355,7 @@ async function main(): Promise<void> {
       writeOutput({
         status: 'success',
         result: turn.result,
+        phase: 'final',
         newSessionId: threadId,
       });
 
