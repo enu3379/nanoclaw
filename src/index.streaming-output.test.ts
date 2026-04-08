@@ -4,11 +4,7 @@ import { _markFinalOutputDeliveryForTests } from './index.js';
 
 describe('_markFinalOutputDeliveryForTests', () => {
   it('does not mark final delivery for progress chunks', () => {
-    const delivered = _markFinalOutputDeliveryForTests(
-      false,
-      'progress',
-      true,
-    );
+    const delivered = _markFinalOutputDeliveryForTests(false, 'progress', true);
     expect(delivered).toBe(false);
   });
 
