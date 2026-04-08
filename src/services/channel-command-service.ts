@@ -165,6 +165,7 @@ export function createChannelCommandService(deps: ChannelCommandServiceDeps): {
       providerPreset: group.containerConfig?.providerPreset,
     });
     const recovery = deps.getClaudeRecoverySnapshot?.();
+    const recoveryState = recovery?.state || 'disabled';
     const agentCursorRaw = getRouterState('last_agent_timestamp');
     let lastAgentCursor = '-';
     if (agentCursorRaw) {
@@ -187,7 +188,7 @@ export function createChannelCommandService(deps: ChannelCommandServiceDeps): {
       `Session: \`${sessionId || 'none'}\``,
       `Claude auth: mode=\`${claudeAuth.mode}\`, source=\`${claudeAuth.source}\`, token=\`${claudeAuth.tokenStatus}\`${claudeAuth.expiresAt ? `, expires=\`${claudeAuth.expiresAt}\`` : ''}`,
       `Claude paths: config=\`${claudeConfigDir}\`, credentials=\`${claudeAuth.credentialsPath}\``,
-      `Claude recovery: state=\`${recovery?.state || 'healthy'}\`${recovery?.recoveryUrl ? ', link=`available`' : ''}${recovery?.lastAuthFailureAt ? `, last_failure=\`${recovery.lastAuthFailureAt}\`` : ''}${recovery?.lastRecoveredAt ? `, last_recovered=\`${recovery.lastRecoveredAt}\`` : ''}${recovery?.lastFallbackAt ? `, last_fallback=\`${recovery.lastFallbackAt}\`` : ''}`,
+      `Claude recovery: state=\`${recoveryState}\`${recovery?.recoveryUrl ? ', link=`available`' : ''}${recovery?.lastAuthFailureAt ? `, last_failure=\`${recovery.lastAuthFailureAt}\`` : ''}${recovery?.lastRecoveredAt ? `, last_recovered=\`${recovery.lastRecoveredAt}\`` : ''}${recovery?.lastFallbackAt ? `, last_fallback=\`${recovery.lastFallbackAt}\`` : ''}`,
       `Cursor: \`${lastAgentCursor}\``,
       `Channel: \`${chatJid}\` folder=\`${group.folder}\``,
     ];

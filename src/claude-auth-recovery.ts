@@ -1,4 +1,4 @@
-import { ensureOllamaServerRunning, resolvePreferredOllamaModel } from './model-switch.js';
+import { resolvePreferredOllamaModel } from './model-switch.js';
 import { startRemoteControl } from './remote-control.js';
 import type { RegisteredGroup } from './types.js';
 import { getClaudeAuthStatus } from './claude-auth.js';
@@ -185,20 +185,33 @@ export class ClaudeAuthRecoveryService {
     }
 
     this.pollTimer = setInterval(async () => {
-      if (!this.isActiveRecovery(chatJid, sequence)) return;
-      const auth = getClaudeAuthStatus({
-        providerPreset: group.containerConfig?.providerPreset,
-      });
-      if (auth.mode === 'oauth' && auth.tokenStatus === 'valid') {
-        if (!this.setHealthy(chatJid)) return;
-        await this.deps.notifyChat(
-          notifyChatJid,
-          [
-            '**Claude Authentication Recovery**',
-            'State: `healthy`',
-            'Claude credentials are valid again. Future Claude runs will use cloud auth.',
-          ].join('\n'),
-        );
+      try {
+        if (!this.isActiveRecovery(chatJid, sequence)) return;
+        const auth = getClaudeAuthStatus({
+          providerPreset: group.containerConfig?.providerPreset,
+        });
+        if (auth.mode === 'oauth' && auth.tokenStatus === 'valid') {
+          if (!this.setHealthy(chatJid)) {
+            this.clearTimers();
+            return;
+          }
+          await this.deps.notifyChat(
+            notifyChatJid,
+            [
+              '**Claude Authentication Recovery**',
+              'State: `healthy`',
+              'Claude credentials are valid again. Future Claude runs will use cloud auth.',
+            ].join('\n'),
+          );
+        }
+      } catch (err) {
+        this.clearTimers();
+        this.recoveringForChat = null;
+        this.snapshot = {
+          ...this.snapshot,
+          state: 'degraded',
+        };
+        logger.error({ err, chatJid }, 'Claude auth recovery poll failed');
       }
     }, RECOVERY_POLL_MS);
 

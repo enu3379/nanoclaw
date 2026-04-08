@@ -12,6 +12,13 @@ import {
 
 const createdPaths: string[] = [];
 const originalHome = process.env.HOME;
+const originalCwd = process.cwd();
+const originalAuthEnv = {
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+  CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN,
+  ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
+  ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+};
 
 function makeTempDir(prefix: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -21,6 +28,14 @@ function makeTempDir(prefix: string): string {
 
 afterEach(() => {
   process.env.HOME = originalHome;
+  process.chdir(originalCwd);
+  for (const [key, value] of Object.entries(originalAuthEnv)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
   while (createdPaths.length > 0) {
     const entry = createdPaths.pop();
     if (entry && fs.existsSync(entry)) {
@@ -33,6 +48,11 @@ describe('claude auth helpers', () => {
   it('treats oauth expiresAt epoch seconds as valid time', () => {
     const fakeHome = makeTempDir('nanoclaw-claude-auth-');
     process.env.HOME = fakeHome;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    delete process.env.ANTHROPIC_AUTH_TOKEN;
+    delete process.env.ANTHROPIC_BASE_URL;
+    process.chdir(fakeHome);
     const configDir = path.join(fakeHome, '.claude');
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(
@@ -55,6 +75,11 @@ describe('claude auth helpers', () => {
   it('reports invalid-json for malformed credentials', () => {
     const fakeHome = makeTempDir('nanoclaw-claude-auth-');
     process.env.HOME = fakeHome;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    delete process.env.ANTHROPIC_AUTH_TOKEN;
+    delete process.env.ANTHROPIC_BASE_URL;
+    process.chdir(fakeHome);
     const configDir = path.join(fakeHome, '.claude');
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(getClaudeCredentialsPath(configDir), '{invalid-json');

@@ -123,21 +123,35 @@ export class AgentExecutionService {
           this.deps.sessionService.clearLiveSession(group.folder, agentType);
         }
         if (agentType === 'claude-code' && isClaudeAuthFailure(output.error)) {
-          await this.deps.claudeAuthRecovery?.handleAuthFailure(
-            group,
-            chatJid,
-            output.error || 'Claude authentication failed',
-          );
+          try {
+            await this.deps.claudeAuthRecovery?.handleAuthFailure(
+              group,
+              chatJid,
+              output.error || 'Claude authentication failed',
+            );
+          } catch (err) {
+            logger.error(
+              { group: group.name, err },
+              'Claude auth recovery hook failed',
+            );
+          }
         }
         logger.error({ group: group.name, error: output.error }, 'Agent error');
         return 'error';
       }
 
       if (agentType === 'claude-code') {
-        await this.deps.claudeAuthRecovery?.noteSuccessfulClaudeRun(
-          group,
-          chatJid,
-        );
+        try {
+          await this.deps.claudeAuthRecovery?.noteSuccessfulClaudeRun(
+            group,
+            chatJid,
+          );
+        } catch (err) {
+          logger.error(
+            { group: group.name, err },
+            'Claude auth recovery success hook failed',
+          );
+        }
       }
 
       return 'success';

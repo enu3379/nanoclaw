@@ -131,7 +131,7 @@ Observed behavior from a real Claude CLI login test on `2026-04-07`:
 - Browser approval may not complete the login by itself.
 - After approval, Claude can still wait at `Paste code here if prompted >`.
 - The browser can return a one-time code or a `code#state` value such as:
-  `ilX23npDQBMz1GR9uVrDvjv92004rATM1QCgVcKtPCDyaMT1#FYNJ7ne9oiL5NvtVhMv1ffXp3EhNLFKyIGczLFrQEbI`
+  `<ONE_TIME_CODE>#<STATE>`
 - That returned value may need to be pasted back into the waiting Claude CLI session to finish authentication.
 
 Debug flow:

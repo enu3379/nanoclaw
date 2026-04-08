@@ -73,10 +73,9 @@ function prepareClaudeHostEnvironment(
   const groupDir = resolveGroupFolderPath(group.folder);
   const globalDir = path.join(GROUPS_DIR, 'global');
   const ipcDir = resolveGroupIpcPath(group.folder);
-  // Host-mode Claude auth only recovered reliably in testing when using the
-  // real ~/.claude directory. Keeping a per-group CLAUDE_CONFIG_DIR caused the
-  // browser login flow to stall and not restore credentials across runs.
-  const claudeConfigDir = getClaudeHomeConfigDir();
+  const sessionRoot = path.join(DATA_DIR, 'sessions', group.folder);
+  const claudeConfigDir = path.join(sessionRoot, '.claude');
+  const authConfigDir = getClaudeHomeConfigDir();
   const skillsDir = path.join(claudeConfigDir, 'skills');
 
   fs.mkdirSync(groupDir, { recursive: true });
@@ -89,7 +88,6 @@ function prepareClaudeHostEnvironment(
   ensureClaudeSessionSettings(claudeConfigDir);
   syncDirectoryEntries(
     [
-      path.join(os.homedir(), '.claude', 'skills'),
       path.join(groupDir, '.claude', 'skills'),
       path.join(process.cwd(), 'container', 'skills'),
     ],
@@ -104,9 +102,18 @@ function prepareClaudeHostEnvironment(
   const pathValue = currentPath.includes(homebrewBin)
     ? currentPath
     : `${homebrewBin}:${currentPath || '/usr/local/bin:/usr/bin:/bin'}`;
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const key of [
+    'ANTHROPIC_API_KEY',
+    'ANTHROPIC_AUTH_TOKEN',
+    'ANTHROPIC_BASE_URL',
+    'CLAUDE_CODE_OAUTH_TOKEN',
+    'CLAUDE_API_KEY',
+  ] as const) {
+    delete env[key];
+  }
 
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
+  Object.assign(env, {
     PATH: pathValue,
     TZ: TIMEZONE,
     NANOCLAW_GROUP_DIR: groupDir,
@@ -116,7 +123,7 @@ function prepareClaudeHostEnvironment(
     NANOCLAW_GROUP_FOLDER: input.groupFolder,
     NANOCLAW_IS_MAIN: input.isMain ? '1' : '0',
     CLAUDE_CONFIG_DIR: claudeConfigDir,
-  };
+  });
 
   const envVars = readEnvFile([
     'ANTHROPIC_API_KEY',
@@ -137,28 +144,31 @@ function prepareClaudeHostEnvironment(
     authStatus.mode === 'missing' ||
     authStatus.source === 'env' ||
     authStatus.tokenStatus !== 'valid';
-  const localClaudeOauthAccessToken = readClaudeAccessToken(claudeConfigDir);
+  const localClaudeOauthAccessToken = readClaudeAccessToken(authConfigDir);
+  const envClaudeOauthToken =
+    envVars.CLAUDE_CODE_OAUTH_TOKEN ||
+    envVars.ANTHROPIC_AUTH_TOKEN ||
+    process.env.CLAUDE_CODE_OAUTH_TOKEN ||
+    process.env.ANTHROPIC_AUTH_TOKEN;
+
   for (const key of [
-    'ANTHROPIC_API_KEY',
-    'ANTHROPIC_AUTH_TOKEN',
-    'ANTHROPIC_BASE_URL',
-    'CLAUDE_CODE_OAUTH_TOKEN',
     'CLAUDE_MODEL',
     'CLAUDE_THINKING',
     'CLAUDE_THINKING_BUDGET',
     'CLAUDE_EFFORT',
   ] as const) {
-    if (key === 'CLAUDE_CODE_OAUTH_TOKEN') {
-      const value =
-        localClaudeOauthAccessToken ||
-        (shouldUseEnvClaudeOauthOverride
-          ? envVars[key] || process.env[key]
-          : undefined);
-      if (value) env[key] = value;
-      continue;
-    }
     const value = envVars[key] || process.env[key];
     if (value) env[key] = value;
+  }
+
+  if (authStatus.mode === 'api-key') {
+    const apiKey = envVars.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
+    if (apiKey) env.ANTHROPIC_API_KEY = apiKey;
+  } else {
+    const oauthToken =
+      localClaudeOauthAccessToken ||
+      (shouldUseEnvClaudeOauthOverride ? envClaudeOauthToken : undefined);
+    if (oauthToken) env.CLAUDE_CODE_OAUTH_TOKEN = oauthToken;
   }
 
   const config = group.containerConfig;

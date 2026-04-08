@@ -123,14 +123,15 @@ function buildOauthStatus(
 
   const oauth = file?.claudeAiOauth;
   const tokenStatus = getOauthTokenStatus(oauth);
+  const normalizedExpiresAt = normalizeExpiresAt(oauth?.expiresAt);
   return {
     mode: 'oauth',
     source,
     tokenStatus,
     credentialsPath,
     expiresAt:
-      typeof normalizeExpiresAt(oauth?.expiresAt) === 'number'
-        ? new Date(normalizeExpiresAt(oauth?.expiresAt)!).toISOString()
+      typeof normalizedExpiresAt === 'number'
+        ? new Date(normalizedExpiresAt).toISOString()
         : null,
     canRefresh: Boolean(oauth?.refreshToken),
     usingEnvOverride,

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockStartRemoteControl = vi.fn();
 const mockEnsureOllamaServerRunning = vi.fn();
@@ -43,6 +43,11 @@ describe('ClaudeAuthRecoveryService', () => {
       mode: 'oauth',
       tokenStatus: 'missing',
     });
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
   });
 
   it('does not run fallback after poll-based recovery succeeds', async () => {
