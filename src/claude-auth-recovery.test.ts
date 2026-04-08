@@ -38,7 +38,10 @@ describe('ClaudeAuthRecoveryService', () => {
       ok: true,
       url: 'https://claude.ai/code?bridge=test',
     });
-    mockEnsureOllamaServerRunning.mockResolvedValue({ ok: true, started: false });
+    mockEnsureOllamaServerRunning.mockResolvedValue({
+      ok: true,
+      started: false,
+    });
     mockGetClaudeAuthStatus.mockReturnValue({
       mode: 'oauth',
       tokenStatus: 'missing',
@@ -54,7 +57,9 @@ describe('ClaudeAuthRecoveryService', () => {
     const notifyChat = vi.fn(async () => {});
     const activateLocalFallback = vi.fn(async () => true);
     const service = new ClaudeAuthRecoveryService({
-      getRegisteredGroups: () => ({ 'dc:main': { ...baseGroup, isMain: true } }),
+      getRegisteredGroups: () => ({
+        'dc:main': { ...baseGroup, isMain: true },
+      }),
       notifyChat,
       activateLocalFallback,
     });
@@ -74,7 +79,9 @@ describe('ClaudeAuthRecoveryService', () => {
 
   it('ignores successful runs from unrelated chats while another recovery is active', async () => {
     const service = new ClaudeAuthRecoveryService({
-      getRegisteredGroups: () => ({ 'dc:main': { ...baseGroup, isMain: true } }),
+      getRegisteredGroups: () => ({
+        'dc:main': { ...baseGroup, isMain: true },
+      }),
       notifyChat: vi.fn(async () => {}),
       activateLocalFallback: vi.fn(async () => true),
     });

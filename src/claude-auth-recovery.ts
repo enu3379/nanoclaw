@@ -32,9 +32,9 @@ interface ClaudeAuthRecoveryDeps {
 export function isClaudeAuthFailure(error?: string | null): boolean {
   return Boolean(
     error &&
-      /(not logged in|please run \/login|authentication_failed|oauth token.*expired|expired oauth token)/i.test(
-        error,
-      ),
+    /(not logged in|please run \/login|authentication_failed|oauth token.*expired|expired oauth token)/i.test(
+      error,
+    ),
   );
 }
 
@@ -78,7 +78,11 @@ export class ClaudeAuthRecoveryService {
   }
 
   private setHealthy(chatJid?: string): boolean {
-    if (chatJid && this.recoveringForChat && this.recoveringForChat !== chatJid) {
+    if (
+      chatJid &&
+      this.recoveringForChat &&
+      this.recoveringForChat !== chatJid
+    ) {
       return false;
     }
     this.clearTimers();
